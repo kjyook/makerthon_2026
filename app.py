@@ -1,0 +1,114 @@
+from __future__ import annotations
+
+import os
+from typing import Any, Dict, List, Tuple
+
+import numpy as np
+from dotenv import load_dotenv
+from flask import Flask, jsonify, render_template, request
+from flask_cors import CORS
+
+from core.llm import get_risk_alpha
+from core.pathfinding import find_path_astar
+from core.physics import compute_risk_map
+from core.voxel import GridSpec, create_airspace_grid
+
+# Load environment variables
+load_dotenv()
+
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
+
+GRID_SPEC = GridSpec()
+OCCUPANCY = create_airspace_grid(GRID_SPEC)
+
+
+def _to_point3d(payload: Dict[str, Any], key: str) -> Tuple[int, int, int]:
+    value = payload.get(key)
+    if not isinstance(value, list) or len(value) != 3:
+        raise ValueError(f"'{key}' must be a list of 3 integers")
+    try:
+        point = tuple(int(v) for v in value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"'{key}' must contain integers") from exc
+
+    x, y, z = point
+    max_x, max_y, max_z = OCCUPANCY.shape
+    if not (0 <= x < max_x and 0 <= y < max_y and 0 <= z < max_z):
+        raise ValueError(f"'{key}' out of grid bounds")
+    return point
+
+
+@app.get("/")
+def index():
+    return render_template("index.html", grid_shape=OCCUPANCY.shape)
+
+
+@app.get("/api/risk-map")
+def risk_map_api():
+    wind_speed = float(request.args.get("wind_speed", 8.0))
+    wind_direction = float(request.args.get("wind_direction", 90.0))
+
+    risk_map = compute_risk_map(OCCUPANCY, wind_speed=wind_speed, wind_direction=wind_direction)
+
+    # Send only sparse high-risk voxels to keep payload lightweight.
+    threshold = float(request.args.get("threshold", 0.55))
+    idx = np.argwhere(risk_map >= threshold)
+
+    points: List[Dict[str, Any]] = []
+    for x, y, z in idx.tolist():
+        points.append({"x": x, "y": y, "z": z, "risk": float(risk_map[x, y, z])})
+
+    return jsonify(
+        {
+            "grid_shape": list(OCCUPANCY.shape),
+            "voxel_size_m": GRID_SPEC.voxel_size_m,
+            "wind_speed": wind_speed,
+            "wind_direction": wind_direction,
+            "threshold": threshold,
+            "points": points,
+        }
+    )
+
+
+@app.post("/api/route")
+def route_api():
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        start = _to_point3d(payload, "start")
+        end = _to_point3d(payload, "end")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    wind_speed = float(payload.get("wind_speed", 8.0))
+    wind_direction = float(payload.get("wind_direction", 90.0))
+    vehicle_type = str(payload.get("vehicle_type", "default"))
+
+    risk_map = compute_risk_map(OCCUPANCY, wind_speed=wind_speed, wind_direction=wind_direction)
+    alpha = get_risk_alpha(wind_speed=wind_speed, wind_direction=wind_direction, vehicle_type=vehicle_type)
+    path = find_path_astar(OCCUPANCY, risk_map, start=start, end=end, alpha=alpha)
+
+    if path is None:
+        return jsonify({"error": "No valid path found"}), 404
+
+    risk_values = [float(risk_map[x, y, z]) for x, y, z in path]
+    mean_risk = float(np.mean(risk_values)) if risk_values else 0.0
+
+    return jsonify(
+        {
+            "start": list(start),
+            "end": list(end),
+            "wind_speed": wind_speed,
+            "wind_direction": wind_direction,
+            "vehicle_type": vehicle_type,
+            "alpha": alpha,
+            "path": [list(p) for p in path],
+            "path_length": len(path),
+            "average_risk": mean_risk,
+        }
+    )
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
