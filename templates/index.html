@@ -1,119 +1,200 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ko">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>UAM 3D Risk Visualization</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+<head>
+    <meta charset="UTF-8">
+    <title>UAM Risk Management - Cesium Ion Edition</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.104/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.104/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
     <style>
-      :root {
-        --bg-1: #f6f4ef;
-        --bg-2: #e6efe9;
-        --ink: #12261d;
-        --accent: #d06f2f;
-        --accent-2: #2d6a4f;
-        --card: rgba(255, 255, 255, 0.86);
-      }
-      * { box-sizing: border-box; }
-      html, body { margin: 0; height: 100%; font-family: "Space Grotesk", sans-serif; color: var(--ink); }
-      body {
-        background: radial-gradient(circle at 20% 15%, #fef7e7 0%, var(--bg-1) 40%),
-          radial-gradient(circle at 80% 70%, #dceee2 0%, var(--bg-2) 45%);
-        display: grid;
-        grid-template-rows: auto 1fr;
-      }
-      header {
-        padding: 14px 18px;
-        border-bottom: 1px solid rgba(18, 38, 29, 0.12);
-        backdrop-filter: blur(6px);
-        background: rgba(255, 255, 255, 0.55);
-      }
-      header h1 { margin: 0; font-size: 1.05rem; letter-spacing: 0.02em; }
-      main {
-        display: grid;
-        grid-template-columns: 320px 1fr;
-        min-height: 0;
-      }
-      .panel {
-        padding: 16px;
-        background: var(--card);
-        border-right: 1px solid rgba(18, 38, 29, 0.1);
-        overflow: auto;
-      }
-      .panel h2 { margin: 6px 0 12px; font-size: 1rem; }
-      .group { margin-bottom: 12px; }
-      label { display: block; margin-bottom: 4px; font-size: 0.9rem; }
-      input {
-        width: 100%;
-        padding: 8px 10px;
-        border-radius: 10px;
-        border: 1px solid rgba(18, 38, 29, 0.25);
-        background: #fff;
-      }
-      button {
-        width: 100%;
-        border: 0;
-        border-radius: 10px;
-        padding: 10px;
-        color: #fff;
-        font-weight: 600;
-        cursor: pointer;
-        background: linear-gradient(135deg, var(--accent), #b94f1a);
-      }
-      button.secondary {
-        margin-top: 8px;
-        background: linear-gradient(135deg, var(--accent-2), #20513b);
-      }
-      #status {
-        margin-top: 10px;
-        padding: 10px;
-        border-radius: 10px;
-        font-size: 0.88rem;
-        background: rgba(208, 111, 47, 0.1);
-      }
-      #viewer { width: 100%; height: 100%; min-height: 420px; }
-      @media (max-width: 900px) {
-        main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-        .panel { border-right: 0; border-bottom: 1px solid rgba(18, 38, 29, 0.1); }
-      }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #000; }
+        #cesiumContainer { width: 100vw; height: 100vh; }
+        
+        .control-panel {
+            position: absolute; top: 20px; left: 20px; z-index: 1000;
+            background: rgba(255, 255, 255, 0.9); padding: 20px;
+            border-radius: 12px; width: 280px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            font-family: 'Malgun Gothic', sans-serif;
+        }
+        .input-group { margin-bottom: 10px; }
+        .input-group label { display: block; font-size: 11px; font-weight: bold; }
+        .input-group input { width: 100%; padding: 6px; box-sizing: border-box; }
+        button {
+            width: 100%; padding: 10px; margin-top: 8px; cursor: pointer;
+            border: none; border-radius: 6px; font-weight: bold; color: white;
+        }
+        #status { margin-top: 15px; font-size: 11px; color: #333; border-top: 1px solid #ccc; padding-top: 10px; }
     </style>
-    <script src="https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium/Cesium.js"></script>
-    <link href="https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
-  </head>
-  <body>
-    <header>
-      <h1>UAM 3D Risk Visualization Prototype</h1>
-    </header>
-    <main>
-      <aside class="panel">
-        <h2>Scenario Input</h2>
-        <div class="group">
-          <label for="start">Start (x,y,z)</label>
-          <input id="start" value="2,2,6" />
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+
+    <div class="control-panel">
+        <h4 style="margin:0 0 10px 0; color: #1a4d2e;">UAM 송도 관제 (Cesium)</h4>
+        <div class="input-group">
+            <label>출발 Voxel (x,y,z):</label>
+            <input id="start" value="2,2,6">
         </div>
-        <div class="group">
-          <label for="end">End (x,y,z)</label>
-          <input id="end" value="28,28,6" />
+        <div class="input-group">
+            <label>도착 Voxel (x,y,z):</label>
+            <input id="end" value="28,28,6">
         </div>
-        <div class="group">
-          <label for="windSpeed">Wind Speed</label>
-          <input id="windSpeed" type="number" step="0.1" value="8" />
+        <div class="input-group">
+            <label>풍속 (m/s):</label>
+            <input type="number" id="wind-speed" value="8.0">
         </div>
-        <div class="group">
-          <label for="windDirection">Wind Direction</label>
-          <input id="windDirection" type="number" step="1" value="90" />
-        </div>
-        <button id="btnRoute">Find Route</button>
-        <button id="btnRisk" class="secondary">Load Risk Voxels</button>
-        <div id="status">Grid: {{ grid_shape }}</div>
-      </aside>
-      <section id="viewer"></section>
-    </main>
+
+        <button onclick="loadRiskMap()" style="background: #e67e22;">1. 위험 격자 생성</button>
+        <button onclick="findRoute()" style="background: #27ae60;">2. 최적 경로 탐색</button>
+        
+        <div id="status">송도 구역 준비 완료</div>
+    </div>
+
     <script>
-      window.APP_GRID_SHAPE = {{ grid_shape | tojson }};
+      // 1. Flask에서 보낸 토큰을 안전하게 받기
+      // 만약 Flask가 None을 보내면 자바스크립트에서는 빈 문자열이 됩니다.
+      const tokenFromFlask = "{{ cesium_token or '' }}";
+
+      // 2. 토큰 결정 (Flask 우선, 없으면 하드코딩된 백업 사용)
+      const BACKUP_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxZTRlOGViNy1lMWQwLTQ0ZjEtOWUzYi1lZTZlYmMyMDlhMDciLCJpZCI6NDI4MzE5LCJpc3MiOiJodHRwczovL2lvbi5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3NzgxNDA3MzZ9.sHjhX9fEGcVsEHY2fki5lozfM2jAKwWkD9kS6sFYi4Q";
+
+      const ION_TOKEN = (tokenFromFlask && tokenFromFlask !== "None" && tokenFromFlask.length > 10) 
+                        ? tokenFromFlask.trim() 
+                        : BACKUP_TOKEN;
+
+      // 3. Cesium 토큰 설정
+      Cesium.Ion.defaultAccessToken = ION_TOKEN;
+
+      console.log("사용 중인 토큰:", ION_TOKEN.substring(0, 10) + "...");
+
+      // 4. 뷰어 초기화 (배경 지도 강제 로드)
+      const viewer = new Cesium.Viewer('cesiumContainer', {
+          terrainProvider: Cesium.createWorldTerrain(),
+          animation: false,
+          timeline: false,
+          baseLayerPicker: true,
+          sceneModePicker: false,
+          osmBuildings: true
+      });
+      viewer.scene.globe.depthTestAgainstTerrain = true;
+
+      // 3D 건물 명시적 추가
+      viewer.scene.primitives.add(Cesium.createOsmBuildings());
+
+      // 송도 센트럴파크로 즉시 이동
+      viewer.camera.setView({
+          destination: Cesium.Cartesian3.fromDegrees(126.6385, 37.3945, 1500),
+          orientation: { pitch: Cesium.Math.toRadians(-45) }
+      });
+
+        // 위험 격자 생성 로직
+        async function loadRiskMap() {
+          const statusEl = document.getElementById('status');
+          const windSpeed = document.getElementById('wind-speed').value;
+          
+          // 1. 버튼 비활성화 (중복 클릭 방지)
+          const btn = document.querySelector('.btn-voxel');
+          if(btn) btn.disabled = true;
+          
+          statusEl.innerText = "서버에서 송도 물리 데이터를 가져오는 중...";
+
+          try {
+              const response = await fetch(`/api/risk-map?wind_speed=${windSpeed}&threshold=0.6`);
+              if (!response.ok) throw new Error(`HTTP 에러! 상태코드: ${response.status}`);
+              
+              const data = await response.json();
+              console.log("수신된 데이터:", data); // 데이터가 잘 오는지 콘솔에서 확인 가능
+
+              // 2. 기존 격자 제거 (viewer 변수가 위에서 선언되어 있어야 함)
+              if (typeof riskEntities !== 'undefined') {
+                  riskEntities.forEach(e => viewer.entities.remove(e));
+                  riskEntities = [];
+              } else {
+                  window.riskEntities = [];
+              }
+
+              // 3. Voxel 생성
+              if (data.points && data.points.length > 0) {
+                  data.points.forEach(p => {
+                      const [lon, lat, alt] = voxelToLonLatAlt(p.x, p.y, p.z);
+                      
+                      const entity = viewer.entities.add({
+                          position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
+                          box: {
+                              dimensions: new Cesium.Cartesian3(45, 45, 45), // Voxel 크기
+                              material: Cesium.Color.ORANGE.withAlpha(0.6),
+                              outline: true,
+                              outlineColor: Cesium.Color.BLACK,
+                              disableDepthTestDistance: Number.POSITIVE_INFINITY 
+                          }
+                      });
+                      riskEntities.push(entity);
+                  });
+                  statusEl.innerText = `송도 구역 ${riskEntities.length}개 위험 격자 생성 완료!`;
+              } else {
+                  statusEl.innerText = "표시할 위험 지역이 없습니다. (풍속을 높여보세요)";
+              }
+
+          } catch (e) {
+              console.error("Voxel 생성 에러:", e);
+              statusEl.innerText = "오류 발생: " + e.message;
+          } finally {
+              if(btn) btn.disabled = false;
+          }
+      }
+      // Voxel 인덱스를 실제 지도 좌표(위경도, 고도)로 변환하는 함수
+      function voxelToLonLatAlt(x, y, z) {
+          const baseLon = 126.62; // 송도 기준 경도
+          const baseLat = 37.37;  // 송도 기준 위도
+          const step = 0.0012;    // 격자 간격 (약 100m)
+          
+          // x, y는 평면 좌표, z는 고도 (기본 50m 시작 + 층당 60m)
+          return [
+              baseLon + x * step, 
+              baseLat + y * step, 
+              50 + z * 60
+          ];
+      }
+
+        // 경로 탐색 로직
+        async function findRoute() {
+            const statusEl = document.getElementById('status');
+            const startVal = document.getElementById('start').value.split(',').map(Number);
+            const endVal = document.getElementById('end').value.split(',').map(Number);
+
+            statusEl.innerText = "경로 탐색 중...";
+
+            try {
+                const response = await fetch('/api/route', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        start: startVal, end: endVal,
+                        wind_speed: Number(document.getElementById('wind-speed').value),
+                        wind_direction: 90.0, vehicle_type: 'passenger'
+                    })
+                });
+                const data = await response.json();
+
+                if (routeEntity) viewer.entities.remove(routeEntity);
+
+                const positions = data.path.map(p => {
+                    const [lon, lat, alt] = voxelToLonLatAlt(p[0], p[1], p[2]);
+                    return Cesium.Cartesian3.fromDegrees(lon, lat, alt);
+                });
+
+                routeEntity = viewer.entities.add({
+                    polyline: {
+                        positions: positions,
+                        width: 8,
+                        material: Cesium.Color.SPRINGGREEN,
+                        disableDepthTestDistance: Number.POSITIVE_INFINITY 
+                    }
+                });
+
+                statusEl.innerText = `탐색 성공! 위험도: ${data.average_risk.toFixed(3)}`;
+                viewer.zoomTo(routeEntity);
+            } catch (e) { statusEl.innerText = "경로 탐색 실패"; }
+        }
     </script>
-    <script src="{{ url_for('static', filename='js/map.js') }}"></script>
-  </body>
+</body>
 </html>

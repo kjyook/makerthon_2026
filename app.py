@@ -41,7 +41,20 @@ def _to_point3d(payload: Dict[str, Any], key: str) -> Tuple[int, int, int]:
 
 @app.get("/")
 def index():
-    return render_template("index.html", grid_shape=OCCUPANCY.shape)
+    # .env 파일에서 토큰을 읽어옵니다.
+    # 토큰이 없을 경우를 대비해 기본값 None을 설정합니다.
+    cesium_token = os.getenv('CESIUM_ION_TOKEN')
+    
+    # render_template에 cesium_token 변수를 추가하여 전달합니다.
+    return render_template(
+        "index.html", 
+        grid_shape=OCCUPANCY.shape, 
+        cesium_token=cesium_token
+    )
+
+@app.get("/vworld")
+def vworld_map():
+    return render_template("vWorldView.html")
 
 
 @app.get("/api/risk-map")

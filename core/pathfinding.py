@@ -72,3 +72,4 @@ def find_path_astar(
         cur = came_from[cur]
     path.reverse()
     return path
+
