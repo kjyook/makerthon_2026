@@ -41,12 +41,17 @@ def find_path_astar(
 
     came_from: Dict[Point3D, Optional[Point3D]] = {start: None}
     cost_so_far: Dict[Point3D, float] = {start: 0.0}
+    closed_set: set[Point3D] = set()
 
     while frontier:
         _, current = heapq.heappop(frontier)
 
         if current == end:
             break
+
+        if current in closed_set:
+            continue
+        closed_set.add(current)
 
         for nxt in _neighbors_26(current, occupancy.shape):
             if occupancy[nxt] == 0:

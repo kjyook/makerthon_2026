@@ -42,6 +42,10 @@
             <label>풍속 (m/s):</label>
             <input type="number" id="wind-speed" value="8.0">
         </div>
+        <div class="input-group">
+            <label>풍향 (deg):</label>
+            <input type="number" id="wind-direction" value="90.0">
+        </div>
 
         <button onclick="loadRiskMap()" style="background: #e67e22;">1. 위험 격자 생성</button>
         <button onclick="findRoute()" style="background: #27ae60;">2. 최적 경로 탐색</button>
@@ -50,6 +54,10 @@
     </div>
 
     <script>
+      // 전역 변수 선언
+      let routeEntity = null;
+      let riskEntities = [];
+
       // 1. Flask에서 보낸 토큰을 안전하게 받기
       // 만약 Flask가 None을 보내면 자바스크립트에서는 빈 문자열이 됩니다.
       const tokenFromFlask = "{{ cesium_token or '' }}";
@@ -90,27 +98,19 @@
         async function loadRiskMap() {
           const statusEl = document.getElementById('status');
           const windSpeed = document.getElementById('wind-speed').value;
-          
-          // 1. 버튼 비활성화 (중복 클릭 방지)
-          const btn = document.querySelector('.btn-voxel');
-          if(btn) btn.disabled = true;
+          const windDirection = document.getElementById('wind-direction').value;
           
           statusEl.innerText = "서버에서 송도 물리 데이터를 가져오는 중...";
 
           try {
-              const response = await fetch(`/api/risk-map?wind_speed=${windSpeed}&threshold=0.6`);
+              const response = await fetch(`/api/risk-map?wind_speed=${windSpeed}&wind_direction=${windDirection}&threshold=0.6`);
               if (!response.ok) throw new Error(`HTTP 에러! 상태코드: ${response.status}`);
               
               const data = await response.json();
-              console.log("수신된 데이터:", data); // 데이터가 잘 오는지 콘솔에서 확인 가능
 
-              // 2. 기존 격자 제거 (viewer 변수가 위에서 선언되어 있어야 함)
-              if (typeof riskEntities !== 'undefined') {
-                  riskEntities.forEach(e => viewer.entities.remove(e));
-                  riskEntities = [];
-              } else {
-                  window.riskEntities = [];
-              }
+              // 2. 기존 격자 제거
+              riskEntities.forEach(e => viewer.entities.remove(e));
+              riskEntities = [];
 
               // 3. Voxel 생성
               if (data.points && data.points.length > 0) {
@@ -137,8 +137,6 @@
           } catch (e) {
               console.error("Voxel 생성 에러:", e);
               statusEl.innerText = "오류 발생: " + e.message;
-          } finally {
-              if(btn) btn.disabled = false;
           }
       }
       // Voxel 인덱스를 실제 지도 좌표(위경도, 고도)로 변환하는 함수
@@ -158,8 +156,15 @@
         // 경로 탐색 로직
         async function findRoute() {
             const statusEl = document.getElementById('status');
-            const startVal = document.getElementById('start').value.split(',').map(Number);
-            const endVal = document.getElementById('end').value.split(',').map(Number);
+            const startVal = document.getElementById('start').value.split(',').map(v => parseInt(v.trim()));
+            const endVal = document.getElementById('end').value.split(',').map(v => parseInt(v.trim()));
+            const windSpeed = Number(document.getElementById('wind-speed').value);
+            const windDirection = Number(document.getElementById('wind-direction').value);
+
+            if (startVal.length !== 3 || endVal.length !== 3 || startVal.some(isNaN) || endVal.some(isNaN)) {
+                statusEl.innerText = "좌표 형식이 올바르지 않습니다 (x,y,z)";
+                return;
+            }
 
             statusEl.innerText = "경로 탐색 중...";
 
@@ -168,12 +173,18 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        start: startVal, end: endVal,
-                        wind_speed: Number(document.getElementById('wind-speed').value),
-                        wind_direction: 90.0, vehicle_type: 'passenger'
+                        start: startVal, 
+                        end: endVal,
+                        wind_speed: windSpeed,
+                        wind_direction: windDirection, 
+                        vehicle_type: 'passenger'
                     })
                 });
+                
                 const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || `서버 오류 (상태코드: ${response.status})`);
+                }
 
                 if (routeEntity) viewer.entities.remove(routeEntity);
 
@@ -193,7 +204,10 @@
 
                 statusEl.innerText = `탐색 성공! 위험도: ${data.average_risk.toFixed(3)}`;
                 viewer.zoomTo(routeEntity);
-            } catch (e) { statusEl.innerText = "경로 탐색 실패"; }
+            } catch (e) { 
+                console.error("경로 탐색 에러:", e);
+                statusEl.innerText = "경로 탐색 실패: " + e.message; 
+            }
         }
     </script>
 </body>
