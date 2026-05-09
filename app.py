@@ -10,7 +10,7 @@ from flask_cors import CORS
 
 from core.llm import get_risk_alpha
 from core.pathfinding import find_path_astar
-from core.physics import compute_risk_map
+from core.test_physics import compute_risk_map
 from core.voxel import GridSpec, create_airspace_grid
 
 # Load environment variables

@@ -103,7 +103,7 @@
           statusEl.innerText = "서버에서 송도 물리 데이터를 가져오는 중...";
 
           try {
-              const response = await fetch(`/api/risk-map?wind_speed=${windSpeed}&wind_direction=${windDirection}&threshold=0.6`);
+              const response = await fetch(`/api/risk-map?wind_speed=${windSpeed}&wind_direction=${windDirection}&threshold=0.4`);
               if (!response.ok) throw new Error(`HTTP 에러! 상태코드: ${response.status}`);
               
               const data = await response.json();
@@ -120,8 +120,8 @@
                       const entity = viewer.entities.add({
                           position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
                           box: {
-                              dimensions: new Cesium.Cartesian3(10, 10, 10), // 10m Voxel
-                              material: Cesium.Color.ORANGE.withAlpha(0.6),
+                              dimensions: new Cesium.Cartesian3(10, 10, 10), 
+                              material: Cesium.Color.ORANGE.withAlpha(Math.min(0.95, p.risk)),
                               outline: false,
                               disableDepthTestDistance: Number.POSITIVE_INFINITY 
                           }
