@@ -25,6 +25,10 @@ pip install -r requirements.txt
 `.env.example` 파일을 복사하여 `.env` 파일을 생성하고 필요한 설정을 입력하세요.
 
 ```bash
+# Windows
+copy .env.example .env
+
+# Mac/Linux
 cp .env.example .env
 ```
 

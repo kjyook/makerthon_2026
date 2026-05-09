@@ -88,9 +88,9 @@
       // 3D 건물 명시적 추가
       viewer.scene.primitives.add(Cesium.createOsmBuildings());
 
-      // 송도 센트럴파크로 즉시 이동
+      // 송도 센트럴파크 구역으로 카메라 설정
       viewer.camera.setView({
-          destination: Cesium.Cartesian3.fromDegrees(126.6385, 37.3945, 1500),
+          destination: Cesium.Cartesian3.fromDegrees(126.639, 37.392, 1800),
           orientation: { pitch: Cesium.Math.toRadians(-45) }
       });
 
@@ -120,18 +120,17 @@
                       const entity = viewer.entities.add({
                           position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
                           box: {
-                              dimensions: new Cesium.Cartesian3(45, 45, 45), // Voxel 크기
+                              dimensions: new Cesium.Cartesian3(10, 10, 10), // 10m Voxel
                               material: Cesium.Color.ORANGE.withAlpha(0.6),
-                              outline: true,
-                              outlineColor: Cesium.Color.BLACK,
+                              outline: false,
                               disableDepthTestDistance: Number.POSITIVE_INFINITY 
                           }
                       });
                       riskEntities.push(entity);
                   });
-                  statusEl.innerText = `송도 구역 ${riskEntities.length}개 위험 격자 생성 완료!`;
+                  statusEl.innerText = `위험 격자 ${riskEntities.length}개 생성 완료! (10m 해상도)`;
               } else {
-                  statusEl.innerText = "표시할 위험 지역이 없습니다. (풍속을 높여보세요)";
+                  statusEl.innerText = "위험 지역이 없습니다. 풍속을 조절해보세요.";
               }
 
           } catch (e) {
@@ -141,15 +140,15 @@
       }
       // Voxel 인덱스를 실제 지도 좌표(위경도, 고도)로 변환하는 함수
       function voxelToLonLatAlt(x, y, z) {
-          const baseLon = 126.62; // 송도 기준 경도
-          const baseLat = 37.37;  // 송도 기준 위도
-          const step = 0.0012;    // 격자 간격 (약 100m)
+          const baseLon = 126.6300; 
+          const baseLat = 37.3850;  
+          const lonStep = 0.00012; 
+          const latStep = 0.00009;
           
-          // x, y는 평면 좌표, z는 고도 (기본 50m 시작 + 층당 60m)
           return [
-              baseLon + x * step, 
-              baseLat + y * step, 
-              50 + z * 60
+              baseLon + x * lonStep, 
+              baseLat + y * latStep, 
+              50 + z * 10
           ];
       }
 
