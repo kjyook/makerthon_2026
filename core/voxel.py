@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 from typing import List, Dict, Any
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon, box
 from core.data_fetcher import fetch_osm_buildings
 
 @dataclass
@@ -23,8 +23,27 @@ class GridSpec:
     alt_base: float = 50.0
     alt_step: float = 10.0
 
+def _inflate_obstacles(grid: np.ndarray) -> np.ndarray:
+    """
+    Inflate blocked cells (0) by 1 voxel (10m) in all 3D directions to create a safety buffer.
+    Since grid uses 1 for air and 0 for building, we want to expand the 0s.
+    """
+    inflated = grid.copy()
+    
+    # 26-way expansion (full 3D Moore neighborhood)
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                if dx == 0 and dy == 0 and dz == 0:
+                    continue
+                # Shift the grid. True (1) becomes False (0) if the shifted neighbor is False (0)
+                shifted = np.roll(grid, shift=(dx, dy, dz), axis=(0, 1, 2))
+                inflated = np.logical_and(inflated, shifted)
+                
+    return inflated.astype(np.int8)
+
 def create_airspace_grid(spec: GridSpec) -> np.ndarray:
-    """Create a realistic occupancy grid from OSM data."""
+    """Create a realistic occupancy grid from OSM data with a safety buffer."""
     grid = np.ones((spec.width, spec.depth, spec.height), dtype=np.int8)
     
     # Define BBox for Overpass API
@@ -57,7 +76,9 @@ def create_airspace_grid(spec: GridSpec) -> np.ndarray:
         min_gx, min_gy, max_gx, max_gy = poly.bounds
         
         # Determine building height in grid units
-        gz_max = int((b['height']) / spec.alt_step)
+        # Add a 20m (2 voxels) explicit vertical safety margin because visual 
+        # building models often have roofs/structures taller than OSM metadata.
+        gz_max = int((b['height'] + 20.0) / spec.alt_step)
         gz_max = min(gz_max, spec.height)
         
         # Iterate through the bounding box of the polygon in grid space
@@ -66,8 +87,13 @@ def create_airspace_grid(spec: GridSpec) -> np.ndarray:
         
         for ix in range(ix_min, ix_max):
             for iy in range(iy_min, iy_max):
-                if poly.contains(Point(ix, iy)):
+                # Create a 1x1 grid cell box to check intersection instead of just a point
+                cell_box = box(ix, iy, ix + 1, iy + 1)
+                if poly.intersects(cell_box):
                     grid[ix, iy, :gz_max] = 0
+                    
+    # Apply 10m safety buffer (inflation)
+    grid = _inflate_obstacles(grid)
                     
     print(f"Voxelization complete. Grid shape: {grid.shape}")
     return grid

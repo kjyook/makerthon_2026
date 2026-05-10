@@ -30,11 +30,32 @@ def find_path_astar(
     risk_map: np.ndarray,
     start: Point3D,
     end: Point3D,
-    alpha: float,
+    wind_speed: float,
+    wind_direction: float,
+    vehicle_type: str = "passenger",
 ) -> Optional[List[Point3D]]:
-    """3D A* with 26-direction moves and risk-weighted traversal cost."""
+    """
+    3D A* with Dynamic Cost Function:
+    - Distance: Euclidean distance between nodes.
+    - Risk: Local environment risk multiplied by vehicle sensitivity.
+    - Wind: Movement into headwind adds cost (energy consumption).
+    - Altitude: Slight penalty for flying too high unnecessarily.
+    """
     if occupancy[start] == 0 or occupancy[end] == 0:
         return None
+
+    # Configuration
+    vehicle_sensitivity = {
+        "passenger": 2.0,    # High safety priority
+        "delivery": 1.0,     # Balanced
+        "emergency": 0.5,    # Speed priority, high risk tolerance
+    }.get(vehicle_type, 1.0)
+    
+    altitude_penalty = 0.05  # Energy cost per altitude level
+    
+    # Wind vector
+    theta = np.deg2rad(wind_direction)
+    wind_vec = np.array([np.cos(theta), np.sin(theta), 0], dtype=np.float32)
 
     frontier: List[Tuple[float, Point3D]] = []
     heapq.heappush(frontier, (0.0, start))
@@ -57,13 +78,35 @@ def find_path_astar(
             if occupancy[nxt] == 0:
                 continue
 
-            step_cost = _distance(current, nxt)
-            move_cost = step_cost + float(risk_map[nxt]) * alpha
+            # 1. Base Distance Cost
+            dist = _distance(current, nxt)
+            
+            # 2. Risk Cost
+            # Sensitivity * Local Risk
+            risk_cost = vehicle_sensitivity * float(risk_map[nxt]) * 15.0 # Scale for impact
+            
+            # 3. Wind Dynamic Cost
+            # If moving AGAINST wind direction, increase cost
+            move_vec = np.array(nxt, dtype=np.float32) - np.array(current, dtype=np.float32)
+            # Dot product: negative if moving against wind, positive if with wind
+            # We want to PENALIZE moving AGAINST wind (negative dot product)
+            wind_impact = -np.dot(move_vec, wind_vec) * (wind_speed / 5.0)
+            wind_cost = max(0, wind_impact)
+            
+            # 4. Altitude Cost
+            # Penalty for vertical changes (climbing or diving)
+            alt_diff = abs(nxt[2] - current[2])
+            alt_cost = alt_diff * 2.0
+
+            move_cost = dist + risk_cost + wind_cost + alt_cost
             new_cost = cost_so_far[current] + move_cost
 
             if nxt not in cost_so_far or new_cost < cost_so_far[nxt]:
                 cost_so_far[nxt] = new_cost
-                priority = new_cost + _distance(nxt, end)
+                # Weighted A* for extreme performance on large grids
+                # SACRIFICE: Shortest path vs speed
+                heuristic_weight = 5.0
+                priority = new_cost + heuristic_weight * _distance(nxt, end)
                 heapq.heappush(frontier, (priority, nxt))
                 came_from[nxt] = current
 

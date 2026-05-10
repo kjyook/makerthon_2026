@@ -51,17 +51,38 @@ def compute_risk_map(occupancy: np.ndarray, wind_speed: float, wind_direction: f
         shifted = np.roll(diffused_blocked, shift=(sx, sy, 0), axis=(0, 1, 2))
         wake += shifted * (0.9 ** step) # Slower exponential decay
 
-    # 3. Updraft (Rising air over buildings)
-    # Shift blocked array upwards (Z direction)
-    updraft = np.zeros_like(diffused_blocked)
-    for z_step in range(1, 4): # Up to 30m above
-        updraft += np.roll(blocked, shift=z_step, axis=2) * (0.6 ** z_step)
+    # 3. Updraft & Downdraft Model (Vertical air movement)
+    # Strength is proportional to wind speed and building height
+    height_map = np.sum(blocked, axis=2) # 2D map of building heights in voxels
+    
+    # Calculate gradient in wind direction to find Windward (Up) and Leeward (Down) faces
+    # shift building presence backwards to find where wind 'hits' a wall
+    sx_wind = int(round(dx))
+    sy_wind = int(round(dy))
+    
+    # Windward: Air hits building and goes UP
+    # We find cells that are AIR but will be BUILDING if moved by wind vector
+    windward_faces = np.logical_and(free, np.roll(blocked, shift=(sx_wind, sy_wind, 0), axis=(0, 1, 2)))
+    
+    # Leeward: Air passes building and goes DOWN (Turbulence)
+    leeward_faces = np.logical_and(free, np.roll(blocked, shift=(-sx_wind, -sy_wind, 0), axis=(0, 1, 2)))
+    
+    updraft = np.zeros_like(free)
+    downdraft = np.zeros_like(free)
+    
+    # Propagate energy upwards into the sky
+    for z_step in range(0, 8): # Up to 80m above the source
+        decay = (0.7 ** z_step)
+        # Updraft starts at windward faces and goes up
+        updraft += np.roll(windward_faces.astype(np.float32), shift=z_step, axis=2) * decay * 1.5
+        # Downdraft starts at leeward faces and goes up (turbulence zone)
+        downdraft += np.roll(leeward_faces.astype(np.float32), shift=z_step, axis=2) * decay * 1.0
 
     # Combine terms
     speed_scale = min(max(wind_speed / 12.0, 0.3), 2.5)
     
-    # Weights: Diffusion(30%), Wake(50%), Updraft(20%)
-    raw_risk = (diffused_blocked * 0.3 + wake * 0.5 + updraft * 0.2) * speed_scale
+    # Weights: Diffusion(20%), Wake(40%), Updraft/Downdraft(40%)
+    raw_risk = (diffused_blocked * 0.2 + wake * 0.4 + (updraft + downdraft) * 0.4) * speed_scale
     
     # Only apply risk to 'free' airspace
     raw_risk *= free

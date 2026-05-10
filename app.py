@@ -59,13 +59,16 @@ def vworld_map():
 
 @app.get("/api/risk-map")
 def risk_map_api():
-    wind_speed = float(request.args.get("wind_speed", 8.0))
-    wind_direction = float(request.args.get("wind_direction", 90.0))
+    try:
+        wind_speed = float(request.args.get("wind_speed", 8.0) or 8.0)
+        wind_direction = float(request.args.get("wind_direction", 90.0) or 90.0)
+    except (ValueError, TypeError):
+        wind_speed, wind_direction = 8.0, 90.0
 
     risk_map = compute_risk_map(OCCUPANCY, wind_speed=wind_speed, wind_direction=wind_direction)
 
     # Send only sparse high-risk voxels to keep payload lightweight.
-    threshold = float(request.args.get("threshold", 0.55))
+    threshold = float(request.args.get("threshold", 0.55) or 0.55)
     idx = np.argwhere(risk_map >= threshold)
 
     points: List[Dict[str, Any]] = []
@@ -94,13 +97,24 @@ def route_api():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    wind_speed = float(payload.get("wind_speed", 8.0))
-    wind_direction = float(payload.get("wind_direction", 90.0))
-    vehicle_type = str(payload.get("vehicle_type", "default"))
+    try:
+        wind_speed = float(payload.get("wind_speed") if payload.get("wind_speed") is not None else 8.0)
+        wind_direction = float(payload.get("wind_direction") if payload.get("wind_direction") is not None else 90.0)
+    except (ValueError, TypeError):
+        wind_speed, wind_direction = 8.0, 90.0
+        
+    vehicle_type = str(payload.get("vehicle_type", "passenger"))
 
     risk_map = compute_risk_map(OCCUPANCY, wind_speed=wind_speed, wind_direction=wind_direction)
-    alpha = get_risk_alpha(wind_speed=wind_speed, wind_direction=wind_direction, vehicle_type=vehicle_type)
-    path = find_path_astar(OCCUPANCY, risk_map, start=start, end=end, alpha=alpha)
+    path = find_path_astar(
+        OCCUPANCY, 
+        risk_map, 
+        start=start, 
+        end=end, 
+        wind_speed=wind_speed, 
+        wind_direction=wind_direction, 
+        vehicle_type=vehicle_type
+    )
 
     if path is None:
         return jsonify({"error": "No valid path found"}), 404
@@ -115,13 +129,20 @@ def route_api():
             "wind_speed": wind_speed,
             "wind_direction": wind_direction,
             "vehicle_type": vehicle_type,
-            "alpha": alpha,
             "path": [list(p) for p in path],
             "path_length": len(path),
             "average_risk": mean_risk,
         }
     )
 
+
+import traceback
+
+@app.errorhandler(500)
+def internal_error(error):
+    print("--- 500 ERROR DETECTED ---")
+    traceback.print_exc()
+    return jsonify({"error": "Internal Server Error", "details": str(error)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
