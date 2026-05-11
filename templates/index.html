@@ -5,6 +5,8 @@
     <title>UAM Risk Management - Cesium Ion Edition</title>
     <script src="https://cesium.com/downloads/cesiumjs/releases/1.104/Build/Cesium/Cesium.js"></script>
     <link href="https://cesium.com/downloads/cesiumjs/releases/1.104/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <!-- Drone class script -->
+    <script src="{{ url_for('static', filename='js/drone.js') }}"></script>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #000; }
         #cesiumContainer { width: 100vw; height: 100vh; }
@@ -49,6 +51,8 @@
 
         <button onclick="loadRiskMap()" style="background: #e67e22;">1. 위험 격자 생성</button>
         <button onclick="findRoute()" style="background: #27ae60;">2. 최적 경로 탐색</button>
+        <button id="btnLaunch" onclick="launchDrone()" style="background: #3498db; display: none;">3. 드론 비행 개시</button>
+        <button id="btnReturn" onclick="returnDrone()" style="background: #e74c3c; display: none;">4. 출발지로 돌아가기</button>
         
         <div id="status">송도 구역 준비 완료</div>
     </div>
@@ -57,6 +61,38 @@
       // 전역 변수 선언
       let routeEntity = null;
       let riskEntities = [];
+      let drone = null;
+// 드론 출발 함수
+function launchDrone() {
+    if (drone) {
+        drone.startFlight();
+        document.getElementById('status').innerText = "드론 비행 시작!";
+        document.getElementById('btnLaunch').style.display = 'none';
+        document.getElementById('btnReturn').style.display = 'block'; // 즉시 복귀 버튼 표시
+    }
+}
+
+// 드론 복귀 함수 (즉시 이동)
+function returnDrone() {
+    if (drone) {
+        drone.returnToOrigin();
+        document.getElementById('status').innerText = "출발지로 즉시 복귀했습니다.";
+        document.getElementById('btnReturn').style.display = 'none';
+        document.getElementById('btnLaunch').style.display = 'block';
+    }
+}
+
+// 드론 도착 시 호출되는 콜백
+window.onDroneArrived = function() {
+    const statusEl = document.getElementById('status');
+    if (drone.status === 'Arrived') {
+        statusEl.innerText = "도착지에 도달했습니다.";
+    } else if (drone.status === 'Ready (At Origin)') {
+        statusEl.innerText = "준비 완료 (출발지)";
+        document.getElementById('btnReturn').style.display = 'none';
+        document.getElementById('btnLaunch').style.display = 'block';
+    }
+};
 
       // 1. Flask에서 보낸 토큰을 안전하게 받기
       // 만약 Flask가 None을 보내면 자바스크립트에서는 빈 문자열이 됩니다.
@@ -77,13 +113,18 @@
       // 4. 뷰어 초기화 (배경 지도 강제 로드)
       const viewer = new Cesium.Viewer('cesiumContainer', {
           terrainProvider: Cesium.createWorldTerrain(),
-          animation: false,
-          timeline: false,
+          animation: true,
+          timeline: true,
           baseLayerPicker: true,
           sceneModePicker: false,
-          osmBuildings: true
+          osmBuildings: true,
+          infoBox: true, // 상태창 활성화
+          selectionIndicator: true
       });
       viewer.scene.globe.depthTestAgainstTerrain = true;
+
+      // 드론 객체 초기화
+      drone = new Drone(viewer);
 
       // 3D 건물 명시적 추가
       viewer.scene.primitives.add(Cesium.createOsmBuildings());
@@ -200,6 +241,12 @@
                         disableDepthTestDistance: Number.POSITIVE_INFINITY 
                     }
                 });
+
+                // 드론 애니메이션 설정 (대기 상태)
+                if (drone) {
+                    drone.setPath(positions);
+                    document.getElementById('btnLaunch').style.display = 'block'; // 버튼 표시
+                }
 
                 statusEl.innerText = `탐색 성공! 위험도: ${data.average_risk.toFixed(3)}`;
                 viewer.zoomTo(routeEntity);
