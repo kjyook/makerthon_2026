@@ -32,7 +32,7 @@ copy .env.example .env
 cp .env.example .env
 ```
 
-- `CESIUM_ION_TOKEN`: Cesium Ion 데이터를 사용할 경우 필요합니다.
+- `CESIUM_ION_TOKEN`: Cesium Ion 데이터를 사용할 경우 권장됩니다. 값이 없어도 기본 토큰으로 실행은 가능합니다.
 
 ### 3. 애플리케이션 실행
 
@@ -64,7 +64,11 @@ python app.py
 ## 🤝 협업 가이드
 
 - 3D 맵 데이터 통합은 `core/` 모듈의 인터페이스를 활용하세요.
-- 프론트엔드 수정 시 `static/js/map.js`를 수정하세요.
+- 현재 대시보드의 핵심 프론트엔드 로직은 `templates/index.html` 안의 inline JS에 있습니다. 분리된 스크립트를 쓰는 경우 `static/js/map.js`를 함께 관리하세요.
 - 새로운 기능 추가 전 `TODO.md`를 확인해 주세요.
 - AI 에이전트는 `GEMINI.md`의 행동 규칙을 준수해야 합니다.
 - AI 에이컨트는 plan-before-action 원칙에 따라 주요 변경 전에 항상 계획을 제안해야 합니다.
+
+## 🛟 문제 해결
+
+- OSM/Overpass API 응답이 느리거나 실패하면, 서버는 빈 그리드로 계속 실행됩니다. 이 경우에도 `/`와 API는 정상적으로 열리지만 위험도 데이터가 비어 있을 수 있습니다.

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 from typing import List, Dict, Any
-from shapely.geometry import Polygon, box
 from core.data_fetcher import fetch_osm_buildings
 
 @dataclass
@@ -42,6 +41,25 @@ def _inflate_obstacles(grid: np.ndarray) -> np.ndarray:
                 
     return inflated.astype(np.int8)
 
+
+def _point_in_polygon(x: float, y: float, polygon: List[tuple[float, float]]) -> bool:
+    """Return True when a 2D point is inside a polygon using ray casting."""
+    inside = False
+    count = len(polygon)
+    if count < 3:
+        return False
+
+    previous_x, previous_y = polygon[-1]
+    for current_x, current_y in polygon:
+        intersects = ((current_y > y) != (previous_y > y)) and (
+            x < (previous_x - current_x) * (y - current_y) / ((previous_y - current_y) or 1e-12) + current_x
+        )
+        if intersects:
+            inside = not inside
+        previous_x, previous_y = current_x, current_y
+
+    return inside
+
 def create_airspace_grid(spec: GridSpec) -> np.ndarray:
     """Create a realistic occupancy grid from OSM data with a safety buffer."""
     grid = np.ones((spec.width, spec.depth, spec.height), dtype=np.int8)
@@ -64,16 +82,18 @@ def create_airspace_grid(spec: GridSpec) -> np.ndarray:
         nodes = b['nodes']
         if len(nodes) < 3:
             continue
-            
-        # Convert Lon/Lat nodes to grid X/Y indices
+
+        # Convert Lon/Lat nodes to grid X/Y indices.
         poly_points = []
         for lon, lat in nodes:
             gx = (lon - spec.base_lon) / spec.lon_step
             gy = (lat - spec.base_lat) / spec.lat_step
             poly_points.append((gx, gy))
-            
-        poly = Polygon(poly_points)
-        min_gx, min_gy, max_gx, max_gy = poly.bounds
+
+        xs = [p[0] for p in poly_points]
+        ys = [p[1] for p in poly_points]
+        min_gx, max_gx = min(xs), max(xs)
+        min_gy, max_gy = min(ys), max(ys)
         
         # Determine building height in grid units
         # Add a 20m (2 voxels) explicit vertical safety margin because visual 
@@ -87,9 +107,8 @@ def create_airspace_grid(spec: GridSpec) -> np.ndarray:
         
         for ix in range(ix_min, ix_max):
             for iy in range(iy_min, iy_max):
-                # Create a 1x1 grid cell box to check intersection instead of just a point
-                cell_box = box(ix, iy, ix + 1, iy + 1)
-                if poly.intersects(cell_box):
+                # Use the cell center for a stable, dependency-free intersection test.
+                if _point_in_polygon(ix + 0.5, iy + 0.5, poly_points):
                     grid[ix, iy, :gz_max] = 0
                     
     # Apply 10m safety buffer (inflation)
