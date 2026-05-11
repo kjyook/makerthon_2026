@@ -255,6 +255,66 @@ window.onDroneArrived = function() {
                 statusEl.innerText = "경로 탐색 실패: " + e.message; 
             }
         }
+
+        // 클릭 상태 관리를 위한 변수
+      let isSelectingStart = true;
+      let startMarker = null;
+      let endMarker = null;
+
+      // 1. 역변환 함수: 위경도/고도를 Voxel 인덱스(x,y,z)로 변환
+      function lonLatAltToVoxel(lon, lat, alt) {
+          const baseLon = 126.6300;
+          const baseLat = 37.3850;
+          const lonStep = 0.00012;
+          const latStep = 0.00009;
+          
+          const x = Math.round((lon - baseLon) / lonStep);
+          const y = Math.round((lat - baseLat) / latStep);
+          const z = Math.round((alt - 5) / 10);
+          
+          return [x, y, z];
+      }
+
+      // 2. Cesium 클릭 핸들러 등록
+      const clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+      clickHandler.setInputAction(function(click) {
+          const ray = viewer.camera.getPickRay(click.position);
+          const cartesian = viewer.scene.globe.pick(ray, viewer.scene);
+
+          if (Cesium.defined(cartesian)) {
+              const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
+              const lon = Cesium.Math.toDegrees(cartographic.longitude);
+              const lat = Cesium.Math.toDegrees(cartographic.latitude);
+              const alt = cartographic.height;
+
+              const [vx, vy, vz] = lonLatAltToVoxel(lon, lat, alt);
+              const voxelStr = `${vx},${vy},${vz < 0 ? 0 : vz}`; 
+
+              if (isSelectingStart) {
+                  document.getElementById('start').value = voxelStr;
+                  if (startMarker) viewer.entities.remove(startMarker);
+                  startMarker = viewer.entities.add({
+                      position: cartesian,
+                      point: { pixelSize: 15, color: Cesium.Color.RED, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
+                      label: { text: "출발지", font: '14px sans-serif', verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -15) }
+                  });
+                  document.getElementById('status').innerText = "출발지 설정 완료! 이제 도착지를 클릭하세요.";
+                  isSelectingStart = false;
+              } else {
+                  document.getElementById('end').value = voxelStr;
+                  if (endMarker) viewer.entities.remove(endMarker);
+                  endMarker = viewer.entities.add({
+                      position: cartesian,
+                      point: { pixelSize: 15, color: Cesium.Color.BLUE, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
+                      label: { text: "도착지", font: '14px sans-serif', verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -15) }
+                  });
+                  document.getElementById('status').innerText = "도착지 설정 완료! '위험 격자 생성' 버튼을 눌러주세요.";
+                  isSelectingStart = true;
+              }
+          }
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
     </script>
 </body>
 </html>
