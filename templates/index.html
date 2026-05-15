@@ -65,6 +65,7 @@
         <button onclick="findRoute()" style="background: #27ae60;">2. 최적 경로 탐색</button>
         <button id="btnLaunch" onclick="launchDrone()" style="background: #3498db; display: none;">3. 드론 비행 개시</button>
         <button id="btnReturn" onclick="returnDrone()" style="background: #e74c3c; display: none;">4. 출발지로 돌아가기</button>
+        <button id="btnObstacle" onclick="generateObstacle()" style="background: #8e44ad; display: none;">5. 전방 장애물 발생 및 재탐색</button>
         
         <div id="status">송도 구역 준비 완료</div>
     </div>
@@ -145,6 +146,7 @@
               document.getElementById('status').innerText = "드론 비행 시작!";
               document.getElementById('btnLaunch').style.display = 'none';
               document.getElementById('btnReturn').style.display = 'block';
+              document.getElementById('btnObstacle').style.display = 'block';
           }
       }
 
@@ -154,11 +156,13 @@
               document.getElementById('status').innerText = "출발지로 즉시 복귀했습니다.";
               document.getElementById('btnReturn').style.display = 'none';
               document.getElementById('btnLaunch').style.display = 'block';
+              document.getElementById('btnObstacle').style.display = 'none';
           }
       }
 
       window.onDroneArrived = function() {
           const statusEl = document.getElementById('status');
+          document.getElementById('btnObstacle').style.display = 'none';
           if (drone.status === 'Arrived') {
               statusEl.innerText = "도착지에 도달했습니다.";
           } else if (drone.status === 'Ready (At Origin)') {
@@ -315,6 +319,102 @@
               }
           }
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+      async function generateObstacle() {
+          if (!drone || !drone.isFlying) return;
+
+          const statusEl = document.getElementById('status');
+          
+          // 1. 현재 위치 파악
+          const currentTime = viewer.clock.currentTime;
+          const currentCartesian = drone.entity.position.getValue(currentTime);
+          if (!currentCartesian) return;
+
+          const cartographic = Cesium.Cartographic.fromCartesian(currentCartesian);
+          const lon = Cesium.Math.toDegrees(cartographic.longitude);
+          const lat = Cesium.Math.toDegrees(cartographic.latitude);
+          const alt = cartographic.height;
+          const currentVoxel = lonLatAltToVoxel(lon, lat, alt);
+
+          // 2. 장애물 위치 결정 (현재 경로상에서 조금 앞)
+          let closestIdx = 0;
+          let minPathsDist = Infinity;
+          for (let i = 0; i < drone.path.length; i++) {
+              const d = Cesium.Cartesian3.distance(currentCartesian, drone.path[i]);
+              if (d < minPathsDist) {
+                  minPathsDist = d;
+                  closestIdx = i;
+              }
+          }
+          
+          const obstacleIdx = Math.min(closestIdx + 5, drone.path.length - 1);
+          const obstacleCartesian = drone.path[obstacleIdx];
+          const obsCarto = Cesium.Cartographic.fromCartesian(obstacleCartesian);
+          const obstacleVoxel = lonLatAltToVoxel(
+              Cesium.Math.toDegrees(obsCarto.longitude),
+              Cesium.Math.toDegrees(obsCarto.latitude),
+              obsCarto.height
+          );
+
+          statusEl.innerText = "장애물 발생! 회피 경로 탐색 중...";
+
+          try {
+              // 3. 백엔드에 장애물 등록
+              await fetch('/api/obstacle', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ voxels: [obstacleVoxel] })
+              });
+
+              // 4. 장애물 시각화
+              viewer.entities.add({
+                  position: obstacleCartesian,
+                  box: {
+                      dimensions: new Cesium.Cartesian3(20, 20, 20),
+                      material: Cesium.Color.RED.withAlpha(0.7),
+                      outline: true,
+                      outlineColor: Cesium.Color.BLACK
+                  }
+              });
+
+              // 5. 현재 위치에서 재탐색
+              const endVal = document.getElementById('end').value.split(',').map(v => parseInt(v.trim()));
+              const response = await fetch('/api/route', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                      start: currentVoxel, 
+                      end: endVal,
+                      wind_speed: Number(document.getElementById('wind-speed').value),
+                      wind_direction: Number(document.getElementById('wind-direction').value),
+                      vehicle_type: 'passenger'
+                  })
+              });
+              
+              const data = await response.json();
+              if (data.error) throw new Error(data.error);
+
+              // 6. 경로 및 드론 업데이트
+              if (routeEntity) viewer.entities.remove(routeEntity);
+              const positions = data.path.map(p => {
+                  const [l, a, h] = voxelToLonLatAlt(p[0], p[1], p[2]);
+                  return Cesium.Cartesian3.fromDegrees(l, a, h);
+              });
+              
+              routeEntity = viewer.entities.add({
+                  polyline: { positions: positions, width: 8, material: Cesium.Color.SPRINGGREEN }
+              });
+
+              // 기존 애니메이션 중단 및 새 경로 시작
+              viewer.clock.shouldAnimate = false;
+              drone.setPath(positions, true); // true: 재탐색임을 알림 (초기 출발지 유지)
+              drone.startFlight();
+              
+              statusEl.innerText = `장애물 회피 완료! 새로운 경로로 비행합니다.`;
+          } catch (e) {
+              statusEl.innerText = "회피 실패: " + e.message;
+          }
+      }
     </script>
 </body>
 </html>

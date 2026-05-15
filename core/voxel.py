@@ -7,8 +7,8 @@ from core.data_fetcher import fetch_osm_buildings
 
 @dataclass
 class GridSpec:
-    width: int = 150  # 1.5km approx
-    depth: int = 150  # 1.5km approx
+    width: int = 300  # 1.5km approx
+    depth: int = 300  # 1.5km approx
     height: int = 40  # 400m max
     voxel_size_m: int = 10
     

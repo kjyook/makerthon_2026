@@ -148,6 +148,29 @@ def route_api():
     )
 
 
+@app.post("/api/obstacle")
+def add_obstacle_api():
+    payload = request.get_json(silent=True) or {}
+    voxels = payload.get("voxels", [])
+    
+    max_x, max_y, max_z = OCCUPANCY.shape
+    
+    for v in voxels:
+        try:
+            x, y, z = int(v[0]), int(v[1]), int(v[2])
+            # 3x3x3 블록 생성 (중심 기준 -1 ~ +1)
+            for dx in range(-1, 2):
+                for dy in range(-1, 2):
+                    for dz in range(-1, 2):
+                        nx, ny, nz = x + dx, y + dy, z + dz
+                        if 0 <= nx < max_x and 0 <= ny < max_y and 0 <= nz < max_z:
+                            OCCUPANCY[nx, ny, nz] = 0 # 0은 장애물(이동 불가)
+        except (ValueError, IndexError, TypeError):
+            continue
+    
+    return jsonify({"status": "success", "message": f"Added {len(voxels)} obstacles"})
+
+
 import traceback
 
 @app.errorhandler(500)
@@ -158,11 +181,3 @@ def internal_error(error):
 
 if __name__ == "__main__":
     app.run(debug=False, use_reloader=False)
-
-@app.get("/api/realtime-weather")
-def realtime_weather():
-    speed, deg = get_realtime_weather(WEATHER_API_KEY)
-    return jsonify({
-        "wind_speed": speed,
-        "wind_direction": deg
-    })
