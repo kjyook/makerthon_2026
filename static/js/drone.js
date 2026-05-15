@@ -17,16 +17,22 @@ class Drone {
         this.status = 'Ready'; // Ready, Flying, Returning, Landed
         
         this.isFlying = false;
-        this.originalPositions = [];
+        this.homePosition = null; // 절대적 초기 출발지 저장
+        this.path = [];
     }
 
     /**
      * Set path but don't start animation yet.
      * Place drone at the start position.
      */
-    setPath(positions) {
+    setPath(positions, isRecalculation = false) {
         if (!positions || positions.length < 2) return;
-        this.originalPositions = positions;
+        
+        // 처음 경로 설정 시에만 homePosition 저장
+        if (!isRecalculation || !this.homePosition) {
+            this.homePosition = positions[0];
+        }
+        
         this.path = positions;
         this.status = 'Ready';
         this.isFlying = false;
@@ -194,7 +200,7 @@ class Drone {
      * Return to the origin point instantly without animation.
      */
     returnToOrigin() {
-        if (!this.originalPositions || this.originalPositions.length < 2) return;
+        if (!this.homePosition) return;
         
         // 진행 중인 애니메이션 및 리스너 중단
         if (this._arrivalListener) {
@@ -206,8 +212,8 @@ class Drone {
         this.status = 'Ready (At Origin)';
         this.isFlying = false;
         
-        // 즉시 출발지 위치로 엔티티 업데이트
-        this._updateEntityAtPosition(this.originalPositions[0]);
+        // 즉시 초기 출발지 위치로 엔티티 업데이트
+        this._updateEntityAtPosition(this.homePosition);
 
         // UI 업데이트 알림
         if (typeof window.onDroneArrived === 'function') {

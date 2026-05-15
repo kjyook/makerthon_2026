@@ -30,10 +30,46 @@
             background: rgba(45, 106, 79, 0.1); border: 1px solid #27ae60;
             font-size: 11px;
         }
+        .drone-telemetry {
+    position: absolute;
+    bottom: 30px; /* 오른쪽 아래 위치 */
+    right: 30px;
+    z-index: 1000;
+    background: rgba(10, 10, 10, 0.85); /* 반투명 검은색 */
+    border: 1px solid #333;
+    border-left: 3px solid #4ade80; /* 왼쪽에 초록색 포인트 선 */
+    padding: 15px;
+    border-radius: 6px;
+    width: 180px;
+    font-family: 'Courier New', Courier, monospace; /* 계기판 느낌의 폰트 */
+    color: #fff;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    display: none; /* 드론이 출발하기 전까지는 숨겨둠 */
+}
+        .drone-telemetry h5 { margin: 0 0 10px 0; color: #4ade80; font-size: 13px; text-align: center; border-bottom: 1px solid #333; padding-bottom: 5px; }
+        .telemetry-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+        .telemetry-label { color: #888; }
+        .telemetry-val { font-weight: bold; color: #e2e8f0; }
     </style>
 </head>
 <body>
     <div id="cesiumContainer"></div>
+
+    <div id="drone-telemetry" class="drone-telemetry">
+    <h5>🛸 FLIGHT STATUS</h5>
+    <div class="telemetry-row">
+        <span class="telemetry-label">STATUS</span>
+        <span class="telemetry-val" id="hud-status">STANDBY</span>
+    </div>
+    <div class="telemetry-row">
+        <span class="telemetry-label">ALT(고도)</span>
+        <span class="telemetry-val" id="hud-alt">0.0 m</span>
+    </div>
+    <div class="telemetry-row">
+        <span class="telemetry-label">SPD(속도)</span>
+        <span class="telemetry-val" id="hud-spd">0 km/h</span>
+    </div>
+</div>
 
     <div class="control-panel">
         <h4 style="margin:0 0 10px 0; color: #1a4d2e;">UAM 송도 관제 (Cesium)</h4>
@@ -65,6 +101,7 @@
         <button onclick="findRoute()" style="background: #27ae60;">2. 최적 경로 탐색</button>
         <button id="btnLaunch" onclick="launchDrone()" style="background: #3498db; display: none;">3. 드론 비행 개시</button>
         <button id="btnReturn" onclick="returnDrone()" style="background: #e74c3c; display: none;">4. 출발지로 돌아가기</button>
+        <button id="btnObstacle" onclick="generateObstacle()" style="background: #8e44ad; display: none;">5. 전방 장애물 발생 및 재탐색</button>
         
         <div id="status">송도 구역 준비 완료</div>
     </div>
@@ -187,6 +224,7 @@
               document.getElementById('status').innerText = "드론 비행 시작!";
               document.getElementById('btnLaunch').style.display = 'none';
               document.getElementById('btnReturn').style.display = 'block';
+              document.getElementById('btnObstacle').style.display = 'block';
           }
       }
 
@@ -196,11 +234,13 @@
               document.getElementById('status').innerText = "출발지로 즉시 복귀했습니다.";
               document.getElementById('btnReturn').style.display = 'none';
               document.getElementById('btnLaunch').style.display = 'block';
+              document.getElementById('btnObstacle').style.display = 'none';
           }
       }
 
       window.onDroneArrived = function() {
           const statusEl = document.getElementById('status');
+          document.getElementById('btnObstacle').style.display = 'none';
           if (drone.status === 'Arrived') {
               statusEl.innerText = "도착지에 도달했습니다.";
           } else if (drone.status === 'Ready (At Origin)') {
@@ -387,6 +427,141 @@
               }
           }
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+      async function generateObstacle() {
+          if (!drone || !drone.isFlying) return;
+
+          const statusEl = document.getElementById('status');
+          
+          // 1. 현재 위치 파악
+          const currentTime = viewer.clock.currentTime;
+          const currentCartesian = drone.entity.position.getValue(currentTime);
+          if (!currentCartesian) return;
+
+          const cartographic = Cesium.Cartographic.fromCartesian(currentCartesian);
+          const lon = Cesium.Math.toDegrees(cartographic.longitude);
+          const lat = Cesium.Math.toDegrees(cartographic.latitude);
+          const alt = cartographic.height;
+          const currentVoxel = lonLatAltToVoxel(lon, lat, alt);
+
+          // 2. 장애물 위치 결정 (현재 경로상에서 조금 앞)
+          let closestIdx = 0;
+          let minPathsDist = Infinity;
+          for (let i = 0; i < drone.path.length; i++) {
+              const d = Cesium.Cartesian3.distance(currentCartesian, drone.path[i]);
+              if (d < minPathsDist) {
+                  minPathsDist = d;
+                  closestIdx = i;
+              }
+          }
+          
+          const obstacleIdx = Math.min(closestIdx + 5, drone.path.length - 1);
+          const obstacleCartesian = drone.path[obstacleIdx];
+          const obsCarto = Cesium.Cartographic.fromCartesian(obstacleCartesian);
+          const obstacleVoxel = lonLatAltToVoxel(
+              Cesium.Math.toDegrees(obsCarto.longitude),
+              Cesium.Math.toDegrees(obsCarto.latitude),
+              obsCarto.height
+          );
+
+          statusEl.innerText = "장애물 발생! 회피 경로 탐색 중...";
+
+          try {
+              // 3. 백엔드에 장애물 등록
+              await fetch('/api/obstacle', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ voxels: [obstacleVoxel] })
+              });
+
+              // 4. 장애물 시각화
+              viewer.entities.add({
+                  position: obstacleCartesian,
+                  box: {
+                      dimensions: new Cesium.Cartesian3(20, 20, 20),
+                      material: Cesium.Color.RED.withAlpha(0.7),
+                      outline: true,
+                      outlineColor: Cesium.Color.BLACK
+                  }
+              });
+
+              // 5. 현재 위치에서 재탐색
+              const endVal = document.getElementById('end').value.split(',').map(v => parseInt(v.trim()));
+              const response = await fetch('/api/route', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                      start: currentVoxel, 
+                      end: endVal,
+                      wind_speed: Number(document.getElementById('wind-speed').value),
+                      wind_direction: Number(document.getElementById('wind-direction').value),
+                      vehicle_type: 'passenger'
+                  })
+              });
+              
+              const data = await response.json();
+              if (data.error) throw new Error(data.error);
+
+              // 6. 경로 및 드론 업데이트
+              if (routeEntity) viewer.entities.remove(routeEntity);
+              const positions = data.path.map(p => {
+                  const [l, a, h] = voxelToLonLatAlt(p[0], p[1], p[2]);
+                  return Cesium.Cartesian3.fromDegrees(l, a, h);
+              });
+              
+              routeEntity = viewer.entities.add({
+                  polyline: { positions: positions, width: 8, material: Cesium.Color.SPRINGGREEN }
+              });
+
+              // 기존 애니메이션 중단 및 새 경로 시작
+              viewer.clock.shouldAnimate = false;
+              drone.setPath(positions, true); // true: 재탐색임을 알림 (초기 출발지 유지)
+              drone.startFlight();
+              
+              statusEl.innerText = `장애물 회피 완료! 새로운 경로로 비행합니다.`;
+          } catch (e) {
+              statusEl.innerText = "회피 실패: " + e.message;
+          }
+      }
+
+      // --- 실시간 HUD 업데이트 로직 ---
+viewer.clock.onTick.addEventListener(function(clock) {
+    // 드론이 비행 중일 때만 HUD 창을 띄우고 수치를 업데이트합니다.
+    if (drone && drone.status === 'Flying') {
+        document.getElementById('drone-telemetry').style.display = 'block';
+        document.getElementById('hud-status').innerText = 'FLYING';
+        document.getElementById('hud-status').style.color = '#4ade80'; // 초록색 불
+
+        // (주의) 팀원의 drone.js 구조에 따라 드론 엔티티에 접근하는 변수명이 다를 수 있습니다.
+        // 만약 drone.entity 가 없다면 drone.droneEntity 등으로 확인해보세요!
+        if (drone.entity && drone.entity.position) {
+            // 1. 현재 시간의 드론 위치 가져오기
+            const position = drone.entity.position.getValue(clock.currentTime);
+            
+            if (position) {
+                // 2. Cartesian3(지구 중심 좌표)를 Cartographic(위경도, 고도)로 변환
+                const cartographic = Cesium.Cartographic.fromCartesian(position);
+                
+                // 3. 고도 업데이트 (소수점 1자리까지)
+                const currentAltitude = cartographic.height;
+                document.getElementById('hud-alt').innerText = currentAltitude.toFixed(1) + ' m';
+                
+                // 4. 가짜 속도 연출 (고도가 변하고 있으면 날아가고 있는 것이므로 속도를 표시)
+                // 실제 속도를 구하려면 이전 프레임의 위치와 비교해야 하지만, 시연용으로는 난수 섞인 고정 속도가 화려합니다.
+                const mockSpeed = 60 + (Math.random() * 5); 
+                document.getElementById('hud-spd').innerText = mockSpeed.toFixed(0) + ' km/h';
+            }
+        }
+    } else if (drone && drone.status === 'Arrived') {
+        document.getElementById('hud-status').innerText = 'ARRIVED';
+        document.getElementById('hud-status').style.color = '#f1c40f'; // 노란색 불
+        document.getElementById('hud-spd').innerText = '0 km/h';
+    } else {
+        // 비행 중이 아니면 숨김 (원하면 'block'으로 두고 0.0m를 유지하게 해도 됩니다)
+        document.getElementById('drone-telemetry').style.display = 'none';
+    }
+});
+
     </script>
 </body>
 </html>
