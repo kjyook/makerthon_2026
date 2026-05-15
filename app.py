@@ -32,6 +32,9 @@ def realtime_weather():
 GRID_SPEC = GridSpec()
 OCCUPANCY = create_airspace_grid(GRID_SPEC)
 
+# 바닥에 용암 깔아버리기
+OCCUPANCY[:, :, 0:2] = 0
+
 
 def _to_point3d(payload: Dict[str, Any], key: str) -> Tuple[int, int, int]:
     value = payload.get(key)
