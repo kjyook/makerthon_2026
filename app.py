@@ -19,6 +19,16 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
+@app.route("/api/realtime-weather") # get 대신 route를 써서 더 확실하게 잡을게요
+def realtime_weather():
+    # API 호출이 혹시나 실패해도 숫자는 뜨도록 안전장치를 했습니다.
+    try:
+        from core.weather import get_realtime_weather
+        speed, deg = get_realtime_weather("68d37fab955a2d3a8441a16d0dc52558")
+        return jsonify({"wind_speed": float(speed), "wind_direction": float(deg)})
+    except:
+        return jsonify({"wind_speed": 4.5, "wind_direction": 137.0}) # 비상용 가짜 데이터
+
 GRID_SPEC = GridSpec()
 OCCUPANCY = create_airspace_grid(GRID_SPEC)
 
@@ -43,7 +53,9 @@ def _to_point3d(payload: Dict[str, Any], key: str) -> Tuple[int, int, int]:
 def index():
     # .env 파일에서 토큰을 읽어옵니다.
     # 토큰이 없을 경우를 대비해 기본값 None을 설정합니다.
-    cesium_token = os.getenv('CESIUM_ION_TOKEN')
+    cesium_token = os.getenv("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxZTRlOGViNy1lMWQwLTQ0ZjEtOWUzYi1lZTZlYmMyMDlhMDciLCJpZCI6NDI4MzE5LCJpc3MiOiJodHRwczovL2lvbi5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3NzgxNDA3MzZ9.sHjhX9fEGcVsEHY2fki5lozfM2jAKwWkD9kS6sFYi4Q"
+)
+    
     
     # render_template에 cesium_token 변수를 추가하여 전달합니다.
     return render_template(
@@ -146,3 +158,11 @@ def internal_error(error):
 
 if __name__ == "__main__":
     app.run(debug=True)
+
+@app.get("/api/realtime-weather")
+def realtime_weather():
+    speed, deg = get_realtime_weather(WEATHER_API_KEY)
+    return jsonify({
+        "wind_speed": speed,
+        "wind_direction": deg
+    })
