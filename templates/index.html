@@ -240,31 +240,52 @@
               const data = await response.json();
               riskEntities.forEach(e => viewer.entities.remove(e));
               riskEntities = [];
-              if (data.points) {
-                  const minColor = Cesium.Color.YELLOW.withAlpha(0.3); // 연한 노란색 (임계값 0.4 근처)
-                  const maxColor = Cesium.Color.DARKRED.withAlpha(0.8); // 진한 빨간색 (위험도 1.0)
 
+              // 세밀한 색상 매핑을 위한 내부 함수
+              function getHeatmapColor(risk) {
+                  let t = (risk - 0.4) / 0.6;
+                  t = Math.max(0, Math.min(1, t));
+                  
+                  let color;
+                  if (t < 0.2) {
+                      const localT = t / 0.2;
+                      color = Cesium.Color.lerp(Cesium.Color.fromCssColorString('#fff9c4'), Cesium.Color.fromCssColorString('#fde047'), localT, new Cesium.Color());
+                  } else if (t < 0.4) {
+                      const localT = (t - 0.2) / 0.2;
+                      color = Cesium.Color.lerp(Cesium.Color.fromCssColorString('#fde047'), Cesium.Color.fromCssColorString('#f59e0b'), localT, new Cesium.Color());
+                  } else if (t < 0.6) {
+                      const localT = (t - 0.4) / 0.2;
+                      color = Cesium.Color.lerp(Cesium.Color.fromCssColorString('#f59e0b'), Cesium.Color.fromCssColorString('#ea580c'), localT, new Cesium.Color());
+                  } else if (t < 0.8) {
+                      const localT = (t - 0.6) / 0.2;
+                      color = Cesium.Color.lerp(Cesium.Color.fromCssColorString('#ea580c'), Cesium.Color.fromCssColorString('#dc2626'), localT, new Cesium.Color());
+                  } else {
+                      const localT = (t - 0.8) / 0.2;
+                      color = Cesium.Color.lerp(Cesium.Color.fromCssColorString('#dc2626'), Cesium.Color.fromCssColorString('#991b1b'), localT, new Cesium.Color());
+                  }
+                  
+                  // 투명도도 부드럽게 조절 (0.15 ~ 0.7)
+                  color.alpha = 0.15 + (t * 0.55); 
+                  return color;
+              }
+
+              if (data.points) {
                   data.points.forEach(p => {
                       const [lon, lat, alt] = voxelToLonLatAlt(p.x, p.y, p.z);
-                      
-                      // 위험도 0.4~1.0 사이를 0~1 비율로 변환
-                      let t = (p.risk - 0.4) / (1.0 - 0.4);
-                      t = Math.max(0, Math.min(1, t)); // 범위 클램핑
-                      
-                      // 색상 보간(Lerp)
-                      const voxelColor = Cesium.Color.lerp(minColor, maxColor, t, new Cesium.Color());
+                      const voxelColor = getHeatmapColor(p.risk);
 
                       const entity = viewer.entities.add({
                           position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
-                          box: {
-                              dimensions: new Cesium.Cartesian3(10, 10, 10), 
-                              material: voxelColor,
-                              outline: false
+                          point: {
+                              pixelSize: 18, // 점의 크기를 키워 서로 겹치게 함
+                              color: voxelColor,
+                              outlineWidth: 0,
+                              disableDepthTestDistance: Number.POSITIVE_INFINITY
                           }
                       });
                       riskEntities.push(entity);
                   });
-                  statusEl.innerText = `격자 ${riskEntities.length}개 생성 완료! (단계별 시각화 적용)`;
+                  statusEl.innerText = `격자 ${riskEntities.length}개 생성 완료! (부드러운 히트맵 적용)`;
               }
           } catch (e) { statusEl.innerText = "에러: " + e.message; }
       }
