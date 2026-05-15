@@ -25,7 +25,7 @@ class GridSpec:
 def _inflate_obstacles(grid: np.ndarray) -> np.ndarray:
     """
     Inflate blocked cells (0) by 1 voxel (10m) in all 3D directions to create a safety buffer.
-    Since grid uses 1 for air and 0 for building, we want to expand the 0s.
+    Prevents wrap-around by resetting boundaries.
     """
     inflated = grid.copy()
     
@@ -35,8 +35,19 @@ def _inflate_obstacles(grid: np.ndarray) -> np.ndarray:
             for dz in (-1, 0, 1):
                 if dx == 0 and dy == 0 and dz == 0:
                     continue
-                # Shift the grid. True (1) becomes False (0) if the shifted neighbor is False (0)
+                # Shift the grid.
                 shifted = np.roll(grid, shift=(dx, dy, dz), axis=(0, 1, 2))
+                
+                # [FIX] Prevent wrap-around by resetting rolled boundaries to 1 (free air)
+                if dx > 0: shifted[:dx, :, :] = 1
+                elif dx < 0: shifted[dx:, :, :] = 1
+                
+                if dy > 0: shifted[:, :dy, :] = 1
+                elif dy < 0: shifted[:, dy:, :] = 1
+                
+                if dz > 0: shifted[:, :, :dz] = 1
+                elif dz < 0: shifted[:, :, dz:] = 1
+                
                 inflated = np.logical_and(inflated, shifted)
                 
     return inflated.astype(np.int8)
@@ -117,10 +128,11 @@ def create_airspace_grid(spec: GridSpec) -> np.ndarray:
     print(f"Voxelization complete. Grid shape: {grid.shape}")
     return grid
 
-def find_rooftops(grid: np.ndarray) -> List[tuple[int, int, int]]:
+def find_rooftops(grid: np.ndarray, min_z: int = 4) -> List[tuple[int, int, int]]:
     """
     Find voxels that are free (1) but directly above a blocked voxel (0).
     We sample these points to avoid overwhelming the frontend with thousands of points.
+    Ignores ground-level transitions by starting search from min_z.
     """
     rooftops = []
     nx, ny, nz = grid.shape
@@ -128,8 +140,8 @@ def find_rooftops(grid: np.ndarray) -> List[tuple[int, int, int]]:
     # Simple sampling: check every 5th voxel in X and Y
     for ix in range(0, nx, 5):
         for iy in range(0, ny, 5):
-            # Scan from bottom up to find the surface of a building
-            for iz in range(1, nz):
+            # Scan from bottom up to find the surface of a building, starting above ground level
+            for iz in range(min_z, nz):
                 if grid[ix, iy, iz] == 1 and grid[ix, iy, iz-1] == 0:
                     rooftops.append((ix, iy, iz))
                     break # Only one rooftop point per sampled column

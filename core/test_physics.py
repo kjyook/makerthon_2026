@@ -87,7 +87,7 @@ def compute_risk_map(occupancy: np.ndarray, wind_speed: float, wind_direction: f
     perp_dy = dx
     
     # Top edge vortex (voxels just above buildings)
-    top_edge = np.logical_and(free, safe_shift_3d(blocked, 0, 0, -1)).astype(np.float32)
+    top_edge = np.logical_and(free, safe_shift_3d(blocked, 0, 0, 1)).astype(np.float32)
     
     # Side edge vortex (voxels to the sides relative to wind direction)
     side_edge_1 = np.logical_and(free, safe_shift_3d(blocked, int(round(perp_dx)), int(round(perp_dy)), 0))

@@ -102,12 +102,6 @@ def risk_map_api():
     )
 
 
-@app.get("/api/landing-zones")
-def landing_zones_api():
-    zones = find_rooftops(OCCUPANCY)
-    return jsonify({"zones": zones})
-
-
 @app.post("/api/route")
 def route_api():
     payload = request.get_json(silent=True) or {}
@@ -189,4 +183,4 @@ def internal_error(error):
     return jsonify({"error": "Internal Server Error", "details": str(error)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=False, use_reloader=False)
+    app.run(host="127.0.0.1", port=8080, debug=False, use_reloader=False)
