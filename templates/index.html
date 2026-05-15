@@ -268,8 +268,8 @@
                       color = Cesium.Color.lerp(Cesium.Color.fromCssColorString('#dc2626'), Cesium.Color.fromCssColorString('#991b1b'), localT, new Cesium.Color());
                   }
                   
-                  // 투명도도 부드럽게 조절 (0.15 ~ 0.7)
-                  color.alpha = 0.15 + (t * 0.55); 
+                  // 투명도를 극한으로 상향 (0.01 ~ 0.15)
+                  color.alpha = 0.01 + (t * 0.14); 
                   return color;
               }
 
@@ -281,15 +281,19 @@
                       const entity = viewer.entities.add({
                           position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
                           point: {
-                              pixelSize: 18, // 점의 크기를 키워 서로 겹치게 함
+                              pixelSize: 24, // 기본 크기를 키워 가까울 때 빔 현상 방지
                               color: voxelColor,
                               outlineWidth: 0,
-                              disableDepthTestDistance: Number.POSITIVE_INFINITY
+                              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                              // 거리 기반 스케일 조절 (가까우면 1배, 멀어지면 0.2배)
+                              scaleByDistance: new Cesium.NearFarScalar(100, 1.0, 3000, 0.2),
+                              // 거리 기반 투명도 조절 (멀어지면 투명도를 10% 수준으로 더 낮춤)
+                              translucencyByDistance: new Cesium.NearFarScalar(100, 1.0, 3000, 0.1)
                           }
                       });
                       riskEntities.push(entity);
                   });
-                  statusEl.innerText = `격자 ${riskEntities.length}개 생성 완료! (부드러운 히트맵 적용)`;
+                  statusEl.innerText = `격자 ${riskEntities.length}개 생성 완료! (거리 비례 동적 시각화 적용)`;
               }
           } catch (e) { statusEl.innerText = "에러: " + e.message; }
       }
