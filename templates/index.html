@@ -5,12 +5,10 @@
     <title>UAM Risk Management - Cesium Ion Edition</title>
     <script src="https://cesium.com/downloads/cesiumjs/releases/1.104/Build/Cesium/Cesium.js"></script>
     <link href="https://cesium.com/downloads/cesiumjs/releases/1.104/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
-    <!-- Drone class script -->
     <script src="{{ url_for('static', filename='js/drone.js') }}"></script>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #000; }
         #cesiumContainer { width: 100vw; height: 100vh; }
-        
         .control-panel {
             position: absolute; top: 20px; left: 20px; z-index: 1000;
             background: rgba(255, 255, 255, 0.9); padding: 20px;
@@ -25,6 +23,13 @@
             border: none; border-radius: 6px; font-weight: bold; color: white;
         }
         #status { margin-top: 15px; font-size: 11px; color: #333; border-top: 1px solid #ccc; padding-top: 10px; }
+        
+        /* [추가] 실시간 기상 관제 스타일 */
+        .weather-info {
+            margin-top: 10px; padding: 10px; border-radius: 8px;
+            background: rgba(45, 106, 79, 0.1); border: 1px solid #27ae60;
+            font-size: 11px;
+        }
     </style>
 </head>
 <body>
@@ -32,6 +37,11 @@
 
     <div class="control-panel">
         <h4 style="margin:0 0 10px 0; color: #1a4d2e;">UAM 송도 관제 (Cesium)</h4>
+        
+        <div class="weather-info">
+            🍃 <b>실시간 기상:</b> <span id="w-speed">-</span>m/s, <span id="w-deg">-</span>°
+        </div>
+
         <div class="input-group">
             <label>출발 Voxel (x,y,z):</label>
             <input id="start" value="20,20,10">
@@ -49,6 +59,8 @@
             <input type="number" id="wind-direction" value="90.0">
         </div>
 
+        <button onclick="updateWeatherUI()" style="background: #12261d; font-size: 10px;">🔄 실시간 기상 데이터 동기화</button>
+
         <button onclick="loadRiskMap()" style="background: #e67e22;">1. 위험 격자 생성</button>
         <button onclick="findRoute()" style="background: #27ae60;">2. 최적 경로 탐색</button>
         <button id="btnLaunch" onclick="launchDrone()" style="background: #3498db; display: none;">3. 드론 비행 개시</button>
@@ -58,59 +70,107 @@
     </div>
 
     <script>
-      // 전역 변수 선언
       let routeEntity = null;
       let riskEntities = [];
       let drone = null;
-// 드론 출발 함수
-function launchDrone() {
-    if (drone) {
-        drone.startFlight();
-        document.getElementById('status').innerText = "드론 비행 시작!";
-        document.getElementById('btnLaunch').style.display = 'none';
-        document.getElementById('btnReturn').style.display = 'block'; // 즉시 복귀 버튼 표시
-    }
-}
+      // 입자 배열 선언
+      let windParticles = [];
 
-// 드론 복귀 함수 (즉시 이동)
-function returnDrone() {
-    if (drone) {
-        drone.returnToOrigin();
-        document.getElementById('status').innerText = "출발지로 즉시 복귀했습니다.";
-        document.getElementById('btnReturn').style.display = 'none';
-        document.getElementById('btnLaunch').style.display = 'block';
-    }
-}
+        async function updateWeatherUI() {
+            try {
+                const res = await fetch('/api/realtime-weather');
+                const data = await res.json();
 
-// 드론 도착 시 호출되는 콜백
-window.onDroneArrived = function() {
-    const statusEl = document.getElementById('status');
-    if (drone.status === 'Arrived') {
-        statusEl.innerText = "도착지에 도달했습니다.";
-    } else if (drone.status === 'Ready (At Origin)') {
-        statusEl.innerText = "준비 완료 (출발지)";
-        document.getElementById('btnReturn').style.display = 'none';
-        document.getElementById('btnLaunch').style.display = 'block';
-    }
-};
+                // 1. 데이터 업데이트
+                const speed = data.wind_speed;
+                const deg = data.wind_direction;
+                
+                // 입력창 업데이트 로직 (기존 동일)
+                const speedInput = document.getElementById('wind-speed') || document.getElementById('windSpeed');
+                const degInput = document.getElementById('wind-direction') || document.getElementById('windDirection');
+                if(speedInput) speedInput.value = speed.toFixed(1);
+                if(degInput) degInput.value = deg.toFixed(0);
 
-      // 1. Flask에서 보낸 토큰을 안전하게 받기
-      // 만약 Flask가 None을 보내면 자바스크립트에서는 빈 문자열이 됩니다.
-      const tokenFromFlask = "{{ cesium_token or '' }}";
+                // 2. 기존 애니메이션 입자 제거
+                windParticles.forEach(p => viewer.entities.remove(p));
+                windParticles = [];
 
-      // 2. 토큰 결정 (Flask 우선, 없으면 하드코딩된 백업 사용)
-      const BACKUP_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxZTRlOGViNy1lMWQwLTQ0ZjEtOWUzYi1lZTZlYmMyMDlhMDciLCJpZCI6NDI4MzE5LCJpc3MiOiJodHRwczovL2lvbi5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3NzgxNDA3MzZ9.sHjhX9fEGcVsEHY2fki5lozfM2jAKwWkD9kS6sFYi4Q";
+                // 3. 바람 방향 계산 (라디안 변환)
+                // Cesium은 동쪽이 0도이므로 기상청 도수(북쪽 0도)를 변환합니다.
+                const angle = (270 - deg) * (Math.PI / 180);
+                const velocityX = Math.cos(angle) * speed * 0.00001; // 경도 변화량
+                const velocityY = Math.sin(angle) * speed * 0.00001; // 위도 변화량
 
-      const ION_TOKEN = (tokenFromFlask && tokenFromFlask !== "None" && tokenFromFlask.length > 10) 
-                        ? tokenFromFlask.trim() 
-                        : BACKUP_TOKEN;
+                // 4. 입자 생성 (100개 정도가 적당합니다)
+                for (let i = 0; i < 100; i++) {
+                    const lon = 126.639 + (Math.random() - 0.5) * 0.02;
+                    const lat = 37.392 + (Math.random() - 0.5) * 0.02;
+                    const alt = 50 + Math.random() * 200;
 
-      // 3. Cesium 토큰 설정
+                    const particle = viewer.entities.add({
+                        position: new Cesium.CallbackProperty(() => {
+                            // [핵심] 매 순간 위치를 조금씩 이동시킴
+                            const currentPos = particle._actualPos || {lon, lat, alt};
+                            
+                            currentPos.lon += velocityX;
+                            currentPos.lat += velocityY;
+
+                            // 구역을 벗어나면 다시 반대편으로 리젠 (무한 루프)
+                            if (Math.abs(currentPos.lon - 126.639) > 0.015) currentPos.lon = 126.639 - (currentPos.lon - 126.639);
+                            if (Math.abs(currentPos.lat - 37.392) > 0.015) currentPos.lat = 37.392 - (currentPos.lat - 37.392);
+
+                            particle._actualPos = currentPos;
+                            return Cesium.Cartesian3.fromDegrees(currentPos.lon, currentPos.lat, currentPos.alt);
+                        }, false),
+                        point: {
+                            pixelSize: 4,
+                            color: Cesium.Color.SKYBLUE.withAlpha(0.6),
+                            disableDepthTestDistance: Number.POSITIVE_INFINITY
+                        }
+                    });
+                    windParticles.push(particle);
+                }
+                document.getElementById('status').innerText = "실시간 바람 애니메이션 활성화!";
+            } catch(e) {
+                console.error("애니메이션 에러:", e);
+            }
+        }
+      // 페이지 로드 시 날씨 가져오기
+      window.onload = updateWeatherUI;
+
+      // --- 기존 드론 제어 로직 ---
+      function launchDrone() {
+          if (drone) {
+              drone.startFlight();
+              document.getElementById('status').innerText = "드론 비행 시작!";
+              document.getElementById('btnLaunch').style.display = 'none';
+              document.getElementById('btnReturn').style.display = 'block';
+          }
+      }
+
+      function returnDrone() {
+          if (drone) {
+              drone.returnToOrigin();
+              document.getElementById('status').innerText = "출발지로 즉시 복귀했습니다.";
+              document.getElementById('btnReturn').style.display = 'none';
+              document.getElementById('btnLaunch').style.display = 'block';
+          }
+      }
+
+      window.onDroneArrived = function() {
+          const statusEl = document.getElementById('status');
+          if (drone.status === 'Arrived') {
+              statusEl.innerText = "도착지에 도달했습니다.";
+          } else if (drone.status === 'Ready (At Origin)') {
+              statusEl.innerText = "준비 완료 (출발지)";
+              document.getElementById('btnReturn').style.display = 'none';
+              document.getElementById('btnLaunch').style.display = 'block';
+          }
+      };
+
+      const ION_TOKEN = "{{ cesium_token or 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxZTRlOGViNy1lMWQwLTQ0ZjEtOWUzYi1lZTZlYmMyMDlhMDciLCJpZCI6NDI4MzE5LCJpc3MiOiJodHRwczovL2lvbi5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3NzgxNDA3MzZ9.sHjhX9fEGcVsEHY2fki5lozfM2jAKwWkD9kS6sFYi4Q' }}";
       Cesium.Ion.defaultAccessToken = ION_TOKEN;
 
-      console.log("사용 중인 토큰:", ION_TOKEN.substring(0, 10) + "...");
-
-      // 4. 뷰어 초기화 (배경 지도 강제 로드)
       const viewer = new Cesium.Viewer('cesiumContainer', {
           terrainProvider: Cesium.createWorldTerrain(),
           animation: true,
@@ -118,145 +178,86 @@ window.onDroneArrived = function() {
           baseLayerPicker: true,
           sceneModePicker: false,
           osmBuildings: true,
-          infoBox: true, // 상태창 활성화
+          infoBox: true,
           selectionIndicator: true
       });
       viewer.scene.globe.depthTestAgainstTerrain = true;
-
-      // 드론 객체 초기화
       drone = new Drone(viewer);
-
-      // 3D 건물 명시적 추가
       viewer.scene.primitives.add(Cesium.createOsmBuildings());
 
-      // 송도 센트럴파크 구역으로 카메라 설정
       viewer.camera.setView({
           destination: Cesium.Cartesian3.fromDegrees(126.639, 37.392, 1800),
           orientation: { pitch: Cesium.Math.toRadians(-45) }
       });
 
-        // 위험 격자 생성 로직
-        async function loadRiskMap() {
+      async function loadRiskMap() {
           const statusEl = document.getElementById('status');
           const windSpeed = document.getElementById('wind-speed').value;
           const windDirection = document.getElementById('wind-direction').value;
-          
-          statusEl.innerText = "서버에서 송도 물리 데이터를 가져오는 중...";
-
+          statusEl.innerText = "위험 격자 생성 중...";
           try {
               const response = await fetch(`/api/risk-map?wind_speed=${windSpeed}&wind_direction=${windDirection}&threshold=0.4`);
-              if (!response.ok) throw new Error(`HTTP 에러! 상태코드: ${response.status}`);
-              
               const data = await response.json();
-
-              // 2. 기존 격자 제거
               riskEntities.forEach(e => viewer.entities.remove(e));
               riskEntities = [];
-
-              // 3. Voxel 생성
-              if (data.points && data.points.length > 0) {
+              if (data.points) {
                   data.points.forEach(p => {
                       const [lon, lat, alt] = voxelToLonLatAlt(p.x, p.y, p.z);
-                      
                       const entity = viewer.entities.add({
                           position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
                           box: {
                               dimensions: new Cesium.Cartesian3(10, 10, 10), 
-                              material: Cesium.Color.ORANGE.withAlpha(Math.min(0.95, p.risk)),
-                              outline: false,
-                              disableDepthTestDistance: Number.POSITIVE_INFINITY 
+                              material: Cesium.Color.ORANGE.withAlpha(0.6),
+                              outline: false
                           }
                       });
                       riskEntities.push(entity);
                   });
-                  statusEl.innerText = `위험 격자 ${riskEntities.length}개 생성 완료! (10m 해상도)`;
-              } else {
-                  statusEl.innerText = "위험 지역이 없습니다. 풍속을 조절해보세요.";
+                  statusEl.innerText = `격자 ${riskEntities.length}개 생성 완료!`;
               }
-
-          } catch (e) {
-              console.error("Voxel 생성 에러:", e);
-              statusEl.innerText = "오류 발생: " + e.message;
-          }
+          } catch (e) { statusEl.innerText = "에러: " + e.message; }
       }
-      // Voxel 인덱스를 실제 지도 좌표(위경도, 고도)로 변환하는 함수
+
       function voxelToLonLatAlt(x, y, z) {
-          const baseLon = 126.6300; 
-          const baseLat = 37.3850;  
-          const lonStep = 0.00012; 
-          const latStep = 0.00009;
-          
-          return [
-              baseLon + x * lonStep, 
-              baseLat + y * latStep, 
-              5 + z * 10
-          ];
+
+          return [126.6300 + x * 0.00012, 37.3850 + y * 0.00009, 5 + z * 10];
+
       }
 
-        // 경로 탐색 로직
-        async function findRoute() {
-            const statusEl = document.getElementById('status');
-            const startVal = document.getElementById('start').value.split(',').map(v => parseInt(v.trim()));
-            const endVal = document.getElementById('end').value.split(',').map(v => parseInt(v.trim()));
-            const windSpeed = Number(document.getElementById('wind-speed').value);
-            const windDirection = Number(document.getElementById('wind-direction').value);
-
-            if (startVal.length !== 3 || endVal.length !== 3 || startVal.some(isNaN) || endVal.some(isNaN)) {
-                statusEl.innerText = "좌표 형식이 올바르지 않습니다 (x,y,z)";
-                return;
-            }
-
-            statusEl.innerText = "경로 탐색 중...";
-
-            try {
-                const response = await fetch('/api/route', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        start: startVal, 
-                        end: endVal,
-                        wind_speed: windSpeed,
-                        wind_direction: windDirection, 
-                        vehicle_type: 'passenger'
-                    })
-                });
-                
-                const data = await response.json();
-                if (!response.ok) {
-                    throw new Error(data.error || `서버 오류 (상태코드: ${response.status})`);
-                }
-
-                if (routeEntity) viewer.entities.remove(routeEntity);
-
-                const positions = data.path.map(p => {
-                    const [lon, lat, alt] = voxelToLonLatAlt(p[0], p[1], p[2]);
-                    return Cesium.Cartesian3.fromDegrees(lon, lat, alt);
-                });
-
-                routeEntity = viewer.entities.add({
-                    polyline: {
-                        positions: positions,
-                        width: 8,
-                        material: Cesium.Color.SPRINGGREEN,
-                        disableDepthTestDistance: Number.POSITIVE_INFINITY 
-                    }
-                });
-
-                // 드론 애니메이션 설정 (대기 상태)
-                if (drone) {
-                    drone.setPath(positions);
-                    document.getElementById('btnLaunch').style.display = 'block'; // 버튼 표시
-                }
-
-                statusEl.innerText = `탐색 성공! 위험도: ${data.average_risk.toFixed(3)}`;
-                viewer.zoomTo(routeEntity);
-            } catch (e) { 
-                console.error("경로 탐색 에러:", e);
-                statusEl.innerText = "경로 탐색 실패: " + e.message; 
-            }
-        }
-
-        // 클릭 상태 관리를 위한 변수
+      async function findRoute() {
+          const statusEl = document.getElementById('status');
+          const startVal = document.getElementById('start').value.split(',').map(v => parseInt(v.trim()));
+          const endVal = document.getElementById('end').value.split(',').map(v => parseInt(v.trim()));
+          statusEl.innerText = "경로 탐색 중...";
+          try {
+              const response = await fetch('/api/route', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                      start: startVal, end: endVal,
+                      wind_speed: Number(document.getElementById('wind-speed').value),
+                      wind_direction: Number(document.getElementById('wind-direction').value),
+                      vehicle_type: 'passenger'
+                  })
+              });
+              const data = await response.json();
+              if (routeEntity) viewer.entities.remove(routeEntity);
+              const positions = data.path.map(p => {
+                  const [lon, lat, alt] = voxelToLonLatAlt(p[0], p[1], p[2]);
+                  return Cesium.Cartesian3.fromDegrees(lon, lat, alt);
+              });
+              routeEntity = viewer.entities.add({
+                  polyline: { positions: positions, width: 8, material: Cesium.Color.SPRINGGREEN }
+              });
+              if (drone) {
+                  drone.setPath(positions);
+                  document.getElementById('btnLaunch').style.display = 'block';
+              }
+              statusEl.innerText = `탐색 성공! 위험도: ${data.average_risk.toFixed(3)}`;
+              viewer.zoomTo(routeEntity);
+          } catch (e) { statusEl.innerText = "실패: " + e.message; }
+      }
+      
       let isSelectingStart = true;
       let startMarker = null;
       let endMarker = null;
@@ -314,7 +315,6 @@ window.onDroneArrived = function() {
               }
           }
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-
     </script>
 </body>
 </html>

@@ -24,7 +24,8 @@ def fetch_osm_buildings(bbox: tuple) -> List[Dict[str, Any]]:
     """
     
     headers = {
-        'User-Agent': 'UAMRiskVisualization/1.0 (contact: your-email@example.com)'
+        'User-Agent': 'Makerthon_Project_User/1.0',
+        'Accept': 'application/json'
     }
     response = requests.post(overpass_url, data={'data': overpass_query}, headers=headers)
     try:
