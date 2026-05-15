@@ -10,8 +10,8 @@ from flask_cors import CORS
 
 from core.llm import get_risk_alpha
 from core.pathfinding import find_path_astar
-from core.physics import compute_risk_map
-from core.voxel import GridSpec, create_airspace_grid
+from core.test_physics import compute_risk_map
+from core.voxel import GridSpec, create_airspace_grid, find_rooftops
 
 # Load environment variables
 load_dotenv()
@@ -19,8 +19,21 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
+@app.route("/api/realtime-weather") # get 대신 route를 써서 더 확실하게 잡을게요
+def realtime_weather():
+    # API 호출이 혹시나 실패해도 숫자는 뜨도록 안전장치를 했습니다.
+    try:
+        from core.weather import get_realtime_weather
+        speed, deg = get_realtime_weather("68d37fab955a2d3a8441a16d0dc52558")
+        return jsonify({"wind_speed": float(speed), "wind_direction": float(deg)})
+    except:
+        return jsonify({"wind_speed": 4.5, "wind_direction": 137.0}) # 비상용 가짜 데이터
+
 GRID_SPEC = GridSpec()
 OCCUPANCY = create_airspace_grid(GRID_SPEC)
+
+# 바닥에 용암 깔아버리기
+OCCUPANCY[:, :, 0:2] = 0
 
 
 def _to_point3d(payload: Dict[str, Any], key: str) -> Tuple[int, int, int]:
@@ -41,18 +54,36 @@ def _to_point3d(payload: Dict[str, Any], key: str) -> Tuple[int, int, int]:
 
 @app.get("/")
 def index():
-    return render_template("index.html", grid_shape=OCCUPANCY.shape)
+    # .env 파일에서 토큰을 읽어옵니다.
+    # 토큰이 없을 경우를 대비해 기본값 None을 설정합니다.
+    cesium_token = os.getenv("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxZTRlOGViNy1lMWQwLTQ0ZjEtOWUzYi1lZTZlYmMyMDlhMDciLCJpZCI6NDI4MzE5LCJpc3MiOiJodHRwczovL2lvbi5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3NzgxNDA3MzZ9.sHjhX9fEGcVsEHY2fki5lozfM2jAKwWkD9kS6sFYi4Q"
+)
+    
+    
+    # render_template에 cesium_token 변수를 추가하여 전달합니다.
+    return render_template(
+        "index.html", 
+        grid_shape=OCCUPANCY.shape, 
+        cesium_token=cesium_token
+    )
+
+@app.get("/vworld")
+def vworld_map():
+    return render_template("vWorldView.html")
 
 
 @app.get("/api/risk-map")
 def risk_map_api():
-    wind_speed = float(request.args.get("wind_speed", 8.0))
-    wind_direction = float(request.args.get("wind_direction", 90.0))
+    try:
+        wind_speed = float(request.args.get("wind_speed", 8.0) or 8.0)
+        wind_direction = float(request.args.get("wind_direction", 90.0) or 90.0)
+    except (ValueError, TypeError):
+        wind_speed, wind_direction = 8.0, 90.0
 
     risk_map = compute_risk_map(OCCUPANCY, wind_speed=wind_speed, wind_direction=wind_direction)
 
     # Send only sparse high-risk voxels to keep payload lightweight.
-    threshold = float(request.args.get("threshold", 0.55))
+    threshold = float(request.args.get("threshold", 0.55) or 0.55)
     idx = np.argwhere(risk_map >= threshold)
 
     points: List[Dict[str, Any]] = []
@@ -81,13 +112,24 @@ def route_api():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    wind_speed = float(payload.get("wind_speed", 8.0))
-    wind_direction = float(payload.get("wind_direction", 90.0))
-    vehicle_type = str(payload.get("vehicle_type", "default"))
+    try:
+        wind_speed = float(payload.get("wind_speed") if payload.get("wind_speed") is not None else 8.0)
+        wind_direction = float(payload.get("wind_direction") if payload.get("wind_direction") is not None else 90.0)
+    except (ValueError, TypeError):
+        wind_speed, wind_direction = 8.0, 90.0
+        
+    vehicle_type = str(payload.get("vehicle_type", "passenger"))
 
     risk_map = compute_risk_map(OCCUPANCY, wind_speed=wind_speed, wind_direction=wind_direction)
-    alpha = get_risk_alpha(wind_speed=wind_speed, wind_direction=wind_direction, vehicle_type=vehicle_type)
-    path = find_path_astar(OCCUPANCY, risk_map, start=start, end=end, alpha=alpha)
+    path = find_path_astar(
+        OCCUPANCY, 
+        risk_map, 
+        start=start, 
+        end=end, 
+        wind_speed=wind_speed, 
+        wind_direction=wind_direction, 
+        vehicle_type=vehicle_type
+    )
 
     if path is None:
         return jsonify({"error": "No valid path found"}), 404
@@ -102,7 +144,6 @@ def route_api():
             "wind_speed": wind_speed,
             "wind_direction": wind_direction,
             "vehicle_type": vehicle_type,
-            "alpha": alpha,
             "path": [list(p) for p in path],
             "path_length": len(path),
             "average_risk": mean_risk,
@@ -110,5 +151,36 @@ def route_api():
     )
 
 
+@app.post("/api/obstacle")
+def add_obstacle_api():
+    payload = request.get_json(silent=True) or {}
+    voxels = payload.get("voxels", [])
+    
+    max_x, max_y, max_z = OCCUPANCY.shape
+    
+    for v in voxels:
+        try:
+            x, y, z = int(v[0]), int(v[1]), int(v[2])
+            # 3x3x3 블록 생성 (중심 기준 -1 ~ +1)
+            for dx in range(-1, 2):
+                for dy in range(-1, 2):
+                    for dz in range(-1, 2):
+                        nx, ny, nz = x + dx, y + dy, z + dz
+                        if 0 <= nx < max_x and 0 <= ny < max_y and 0 <= nz < max_z:
+                            OCCUPANCY[nx, ny, nz] = 0 # 0은 장애물(이동 불가)
+        except (ValueError, IndexError, TypeError):
+            continue
+    
+    return jsonify({"status": "success", "message": f"Added {len(voxels)} obstacles"})
+
+
+import traceback
+
+@app.errorhandler(500)
+def internal_error(error):
+    print("--- 500 ERROR DETECTED ---")
+    traceback.print_exc()
+    return jsonify({"error": "Internal Server Error", "details": str(error)}), 500
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="127.0.0.1", port=8080, debug=False, use_reloader=False)

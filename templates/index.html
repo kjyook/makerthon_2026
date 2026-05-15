@@ -1,119 +1,535 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ko">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>UAM 3D Risk Visualization</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+<head>
+    <meta charset="UTF-8">
+    <title>UAM Risk Management - Cesium Ion Edition</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.104/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.104/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <script src="{{ url_for('static', filename='js/drone.js') }}"></script>
     <style>
-      :root {
-        --bg-1: #f6f4ef;
-        --bg-2: #e6efe9;
-        --ink: #12261d;
-        --accent: #d06f2f;
-        --accent-2: #2d6a4f;
-        --card: rgba(255, 255, 255, 0.86);
-      }
-      * { box-sizing: border-box; }
-      html, body { margin: 0; height: 100%; font-family: "Space Grotesk", sans-serif; color: var(--ink); }
-      body {
-        background: radial-gradient(circle at 20% 15%, #fef7e7 0%, var(--bg-1) 40%),
-          radial-gradient(circle at 80% 70%, #dceee2 0%, var(--bg-2) 45%);
-        display: grid;
-        grid-template-rows: auto 1fr;
-      }
-      header {
-        padding: 14px 18px;
-        border-bottom: 1px solid rgba(18, 38, 29, 0.12);
-        backdrop-filter: blur(6px);
-        background: rgba(255, 255, 255, 0.55);
-      }
-      header h1 { margin: 0; font-size: 1.05rem; letter-spacing: 0.02em; }
-      main {
-        display: grid;
-        grid-template-columns: 320px 1fr;
-        min-height: 0;
-      }
-      .panel {
-        padding: 16px;
-        background: var(--card);
-        border-right: 1px solid rgba(18, 38, 29, 0.1);
-        overflow: auto;
-      }
-      .panel h2 { margin: 6px 0 12px; font-size: 1rem; }
-      .group { margin-bottom: 12px; }
-      label { display: block; margin-bottom: 4px; font-size: 0.9rem; }
-      input {
-        width: 100%;
-        padding: 8px 10px;
-        border-radius: 10px;
-        border: 1px solid rgba(18, 38, 29, 0.25);
-        background: #fff;
-      }
-      button {
-        width: 100%;
-        border: 0;
-        border-radius: 10px;
-        padding: 10px;
-        color: #fff;
-        font-weight: 600;
-        cursor: pointer;
-        background: linear-gradient(135deg, var(--accent), #b94f1a);
-      }
-      button.secondary {
-        margin-top: 8px;
-        background: linear-gradient(135deg, var(--accent-2), #20513b);
-      }
-      #status {
-        margin-top: 10px;
-        padding: 10px;
-        border-radius: 10px;
-        font-size: 0.88rem;
-        background: rgba(208, 111, 47, 0.1);
-      }
-      #viewer { width: 100%; height: 100%; min-height: 420px; }
-      @media (max-width: 900px) {
-        main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-        .panel { border-right: 0; border-bottom: 1px solid rgba(18, 38, 29, 0.1); }
-      }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #000; }
+        #cesiumContainer { width: 100vw; height: 100vh; }
+        .control-panel {
+            position: absolute; top: 20px; left: 20px; z-index: 1000;
+            background: rgba(255, 255, 255, 0.9); padding: 20px;
+            border-radius: 12px; width: 280px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            font-family: 'Malgun Gothic', sans-serif;
+        }
+        .input-group { margin-bottom: 10px; }
+        .input-group label { display: block; font-size: 11px; font-weight: bold; }
+        .input-group input { width: 100%; padding: 6px; box-sizing: border-box; }
+        button {
+            width: 100%; padding: 10px; margin-top: 8px; cursor: pointer;
+            border: none; border-radius: 6px; font-weight: bold; color: white;
+        }
+        #status { margin-top: 15px; font-size: 11px; color: #333; border-top: 1px solid #ccc; padding-top: 10px; }
+        
+        /* [추가] 실시간 기상 관제 스타일 */
+        .weather-info {
+            margin-top: 10px; padding: 10px; border-radius: 8px;
+            background: rgba(45, 106, 79, 0.1); border: 1px solid #27ae60;
+            font-size: 11px;
+        }
+        .drone-telemetry {
+    position: absolute;
+    bottom: 30px; /* 오른쪽 아래 위치 */
+    right: 30px;
+    z-index: 1000;
+    background: rgba(10, 10, 10, 0.85); /* 반투명 검은색 */
+    border: 1px solid #333;
+    border-left: 3px solid #4ade80; /* 왼쪽에 초록색 포인트 선 */
+    padding: 15px;
+    border-radius: 6px;
+    width: 180px;
+    font-family: 'Courier New', Courier, monospace; /* 계기판 느낌의 폰트 */
+    color: #fff;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    display: none; /* 드론이 출발하기 전까지는 숨겨둠 */
+}
+        .drone-telemetry h5 { margin: 0 0 10px 0; color: #4ade80; font-size: 13px; text-align: center; border-bottom: 1px solid #333; padding-bottom: 5px; }
+        .telemetry-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+        .telemetry-label { color: #888; }
+        .telemetry-val { font-weight: bold; color: #e2e8f0; }
     </style>
-    <script src="https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium/Cesium.js"></script>
-    <link href="https://cesium.com/downloads/cesiumjs/releases/1.120/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
-  </head>
-  <body>
-    <header>
-      <h1>UAM 3D Risk Visualization Prototype</h1>
-    </header>
-    <main>
-      <aside class="panel">
-        <h2>Scenario Input</h2>
-        <div class="group">
-          <label for="start">Start (x,y,z)</label>
-          <input id="start" value="2,2,6" />
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+
+    <div id="drone-telemetry" class="drone-telemetry">
+    <h5>🛸 FLIGHT STATUS</h5>
+    <div class="telemetry-row">
+        <span class="telemetry-label">STATUS</span>
+        <span class="telemetry-val" id="hud-status">STANDBY</span>
+    </div>
+    <div class="telemetry-row">
+        <span class="telemetry-label">ALT(고도)</span>
+        <span class="telemetry-val" id="hud-alt">0.0 m</span>
+    </div>
+    <div class="telemetry-row">
+        <span class="telemetry-label">SPD(속도)</span>
+        <span class="telemetry-val" id="hud-spd">0 km/h</span>
+    </div>
+</div>
+
+    <div class="control-panel">
+        <h4 style="margin:0 0 10px 0; color: #1a4d2e;">UAM 송도 관제 (Cesium)</h4>
+        
+        <div class="weather-info">
+            🍃 <b>실시간 기상:</b> <span id="w-speed">-</span>m/s, <span id="w-deg">-</span>°
         </div>
-        <div class="group">
-          <label for="end">End (x,y,z)</label>
-          <input id="end" value="28,28,6" />
+
+        <div class="input-group">
+            <label>출발 Voxel (x,y,z):</label>
+            <input id="start" value="20,20,10">
         </div>
-        <div class="group">
-          <label for="windSpeed">Wind Speed</label>
-          <input id="windSpeed" type="number" step="0.1" value="8" />
+        <div class="input-group">
+            <label>도착 Voxel (x,y,z):</label>
+            <input id="end" value="120,120,10">
         </div>
-        <div class="group">
-          <label for="windDirection">Wind Direction</label>
-          <input id="windDirection" type="number" step="1" value="90" />
+        <div class="input-group">
+            <label>풍속 (m/s):</label>
+            <input type="number" id="wind-speed" value="8.0">
         </div>
-        <button id="btnRoute">Find Route</button>
-        <button id="btnRisk" class="secondary">Load Risk Voxels</button>
-        <div id="status">Grid: {{ grid_shape }}</div>
-      </aside>
-      <section id="viewer"></section>
-    </main>
+        <div class="input-group">
+            <label>풍향 (deg):</label>
+            <input type="number" id="wind-direction" value="90.0">
+        </div>
+
+        <button onclick="updateWeatherUI()" style="background: #12261d; font-size: 10px;">🔄 실시간 기상 데이터 동기화</button>
+
+        <button onclick="loadRiskMap()" style="background: #e67e22;">1. 위험 격자 생성</button>
+        <button onclick="findRoute()" style="background: #27ae60;">2. 최적 경로 탐색</button>
+        <button id="btnLaunch" onclick="launchDrone()" style="background: #3498db; display: none;">3. 드론 비행 개시</button>
+        <button id="btnReturn" onclick="returnDrone()" style="background: #e74c3c; display: none;">4. 출발지로 돌아가기</button>
+        <button id="btnObstacle" onclick="generateObstacle()" style="background: #8e44ad; display: none;">5. 전방 장애물 발생 및 재탐색</button>
+        
+        <div id="status">송도 구역 준비 완료</div>
+    </div>
+
     <script>
-      window.APP_GRID_SHAPE = {{ grid_shape | tojson }};
+      let routeEntity = null;
+      let riskEntities = [];
+      let drone = null;
+      // 입자 배열 선언
+      let windParticles = [];
+
+        async function updateWeatherUI() {
+            try {
+                const res = await fetch('/api/realtime-weather');
+                const data = await res.json();
+
+                // 1. 데이터 업데이트
+                const speed = data.wind_speed;
+                const deg = data.wind_direction;
+                
+                // 상단 상태바 텍스트 업데이트
+                document.getElementById('w-speed').innerText = speed.toFixed(1);
+                document.getElementById('w-deg').innerText = deg.toFixed(0);
+                
+                // 입력창 업데이트 로직
+                const speedInput = document.getElementById('wind-speed') || document.getElementById('windSpeed');
+                const degInput = document.getElementById('wind-direction') || document.getElementById('windDirection');
+                if(speedInput) speedInput.value = speed.toFixed(1);
+                if(degInput) degInput.value = deg.toFixed(0);
+
+                // 2. 기존 애니메이션 입자 제거
+                windParticles.forEach(p => viewer.entities.remove(p));
+                windParticles = [];
+
+                // 3. 바람 방향 계산 (라디안 변환)
+                // Cesium은 동쪽이 0도이므로 기상청 도수(북쪽 0도)를 변환합니다.
+                const angle = (270 - deg) * (Math.PI / 180);
+                const velocityX = Math.cos(angle) * speed * 0.00001; // 경도 변화량
+                const velocityY = Math.sin(angle) * speed * 0.00001; // 위도 변화량
+
+                // 4. 입자 생성 (100개 정도가 적당합니다)
+                for (let i = 0; i < 100; i++) {
+                    const lon = 126.639 + (Math.random() - 0.5) * 0.02;
+                    const lat = 37.392 + (Math.random() - 0.5) * 0.02;
+                    const alt = 50 + Math.random() * 200;
+
+                    const particle = viewer.entities.add({
+                        position: new Cesium.CallbackProperty(() => {
+                            // [핵심] 매 순간 위치를 조금씩 이동시킴
+                            const currentPos = particle._actualPos || {lon, lat, alt};
+                            
+                            currentPos.lon += velocityX;
+                            currentPos.lat += velocityY;
+
+                            // 구역을 벗어나면 다시 반대편으로 리젠 (무한 루프)
+                            if (Math.abs(currentPos.lon - 126.639) > 0.015) currentPos.lon = 126.639 - (currentPos.lon - 126.639);
+                            if (Math.abs(currentPos.lat - 37.392) > 0.015) currentPos.lat = 37.392 - (currentPos.lat - 37.392);
+
+                            particle._actualPos = currentPos;
+                            return Cesium.Cartesian3.fromDegrees(currentPos.lon, currentPos.lat, currentPos.alt);
+                        }, false),
+                        point: {
+                            pixelSize: 4,
+                            color: Cesium.Color.SKYBLUE.withAlpha(0.6),
+                            disableDepthTestDistance: Number.POSITIVE_INFINITY
+                        }
+                    });
+                    windParticles.push(particle);
+                }
+                document.getElementById('status').innerText = "실시간 바람 애니메이션 활성화!";
+            } catch(e) {
+                console.error("애니메이션 에러:", e);
+            }
+        }
+      // 페이지 로드 시 날씨 가져오기
+      window.onload = updateWeatherUI;
+
+      // --- 기존 드론 제어 로직 ---
+      function launchDrone() {
+          if (drone) {
+              drone.startFlight();
+              document.getElementById('status').innerText = "드론 비행 시작!";
+              document.getElementById('btnLaunch').style.display = 'none';
+              document.getElementById('btnReturn').style.display = 'block';
+              document.getElementById('btnObstacle').style.display = 'block';
+          }
+      }
+
+      function returnDrone() {
+          if (drone) {
+              drone.returnToOrigin();
+              document.getElementById('status').innerText = "출발지로 즉시 복귀했습니다.";
+              document.getElementById('btnReturn').style.display = 'none';
+              document.getElementById('btnLaunch').style.display = 'block';
+              document.getElementById('btnObstacle').style.display = 'none';
+          }
+      }
+
+      window.onDroneArrived = function() {
+          const statusEl = document.getElementById('status');
+          document.getElementById('btnObstacle').style.display = 'none';
+          if (drone.status === 'Arrived') {
+              statusEl.innerText = "도착지에 도달했습니다.";
+          } else if (drone.status === 'Ready (At Origin)') {
+              statusEl.innerText = "준비 완료 (출발지)";
+              document.getElementById('btnReturn').style.display = 'none';
+              document.getElementById('btnLaunch').style.display = 'block';
+          }
+      };
+
+      const ION_TOKEN = "{{ cesium_token or 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxZTRlOGViNy1lMWQwLTQ0ZjEtOWUzYi1lZTZlYmMyMDlhMDciLCJpZCI6NDI4MzE5LCJpc3MiOiJodHRwczovL2lvbi5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3NzgxNDA3MzZ9.sHjhX9fEGcVsEHY2fki5lozfM2jAKwWkD9kS6sFYi4Q' }}";
+      Cesium.Ion.defaultAccessToken = ION_TOKEN;
+
+      const viewer = new Cesium.Viewer('cesiumContainer', {
+          terrainProvider: Cesium.createWorldTerrain(),
+          animation: true,
+          timeline: true,
+          baseLayerPicker: true,
+          sceneModePicker: false,
+          osmBuildings: true,
+          infoBox: true,
+          selectionIndicator: true
+      });
+      viewer.scene.globe.depthTestAgainstTerrain = true;
+      drone = new Drone(viewer);
+      viewer.scene.primitives.add(Cesium.createOsmBuildings());
+
+      viewer.camera.setView({
+          destination: Cesium.Cartesian3.fromDegrees(126.639, 37.392, 1800),
+          orientation: { pitch: Cesium.Math.toRadians(-45) }
+      });
+
+      async function loadRiskMap() {
+          const statusEl = document.getElementById('status');
+          const windSpeed = document.getElementById('wind-speed').value;
+          const windDirection = document.getElementById('wind-direction').value;
+          statusEl.innerText = "위험 격자 생성 중...";
+          try {
+              const response = await fetch(`/api/risk-map?wind_speed=${windSpeed}&wind_direction=${windDirection}&threshold=0.4`);
+              const data = await response.json();
+              riskEntities.forEach(e => viewer.entities.remove(e));
+              riskEntities = [];
+
+              // 세밀한 색상 매핑을 위한 내부 함수
+              function getHeatmapColor(risk) {
+                  let t = (risk - 0.4) / 0.6;
+                  t = Math.max(0, Math.min(1, t));
+                  
+                  let color;
+                  if (t < 0.2) {
+                      const localT = t / 0.2;
+                      color = Cesium.Color.lerp(Cesium.Color.fromCssColorString('#fff9c4'), Cesium.Color.fromCssColorString('#fde047'), localT, new Cesium.Color());
+                  } else if (t < 0.4) {
+                      const localT = (t - 0.2) / 0.2;
+                      color = Cesium.Color.lerp(Cesium.Color.fromCssColorString('#fde047'), Cesium.Color.fromCssColorString('#f59e0b'), localT, new Cesium.Color());
+                  } else if (t < 0.6) {
+                      const localT = (t - 0.4) / 0.2;
+                      color = Cesium.Color.lerp(Cesium.Color.fromCssColorString('#f59e0b'), Cesium.Color.fromCssColorString('#ea580c'), localT, new Cesium.Color());
+                  } else if (t < 0.8) {
+                      const localT = (t - 0.6) / 0.2;
+                      color = Cesium.Color.lerp(Cesium.Color.fromCssColorString('#ea580c'), Cesium.Color.fromCssColorString('#dc2626'), localT, new Cesium.Color());
+                  } else {
+                      const localT = (t - 0.8) / 0.2;
+                      color = Cesium.Color.lerp(Cesium.Color.fromCssColorString('#dc2626'), Cesium.Color.fromCssColorString('#991b1b'), localT, new Cesium.Color());
+                  }
+                  
+                  // 투명도를 극한으로 상향 (0.01 ~ 0.15)
+                  color.alpha = 0.4 + (t * 0.5); 
+                  return color;
+              }
+
+              if (data.points) {
+                  data.points.forEach(p => {
+                      const [lon, lat, alt] = voxelToLonLatAlt(p.x, p.y, p.z);
+                      const voxelColor = getHeatmapColor(p.risk);
+
+                      const entity = viewer.entities.add({
+                          position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
+                          point: {
+                              pixelSize: 24, // 기본 크기를 키워 가까울 때 빔 현상 방지
+                              color: voxelColor,
+                              outlineWidth: 0,
+                              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                              // 거리 기반 스케일 조절 (가까우면 1배, 멀어지면 0.2배)
+                              scaleByDistance: new Cesium.NearFarScalar(100, 1.0, 3000, 0.2),
+                              // 거리 기반 투명도 조절 (멀어지면 투명도를 10% 수준으로 더 낮춤)
+                              translucencyByDistance: new Cesium.NearFarScalar(100, 1.0, 3000, 0.1)
+                          }
+                      });
+                      riskEntities.push(entity);
+                  });
+                  statusEl.innerText = `격자 ${riskEntities.length}개 생성 완료! (거리 비례 동적 시각화 적용)`;
+              }
+          } catch (e) { statusEl.innerText = "에러: " + e.message; }
+      }
+
+      function voxelToLonLatAlt(x, y, z) {
+
+          return [126.6300 + x * 0.00012, 37.3850 + y * 0.00009, 5 + z * 10];
+
+      }
+
+      async function findRoute() {
+          const statusEl = document.getElementById('status');
+          const startVal = document.getElementById('start').value.split(',').map(v => parseInt(v.trim()));
+          const endVal = document.getElementById('end').value.split(',').map(v => parseInt(v.trim()));
+          statusEl.innerText = "경로 탐색 중...";
+          try {
+              const response = await fetch('/api/route', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                      start: startVal, end: endVal,
+                      wind_speed: Number(document.getElementById('wind-speed').value),
+                      wind_direction: Number(document.getElementById('wind-direction').value),
+                      vehicle_type: 'passenger'
+                  })
+              });
+              const data = await response.json();
+              if (routeEntity) viewer.entities.remove(routeEntity);
+              const positions = data.path.map(p => {
+                  const [lon, lat, alt] = voxelToLonLatAlt(p[0], p[1], p[2]);
+                  return Cesium.Cartesian3.fromDegrees(lon, lat, alt);
+              });
+              routeEntity = viewer.entities.add({
+                  polyline: { positions: positions, width: 8, material: Cesium.Color.SPRINGGREEN }
+              });
+              if (drone) {
+                  drone.setPath(positions);
+                  document.getElementById('btnLaunch').style.display = 'block';
+              }
+              statusEl.innerText = `탐색 성공! 위험도: ${data.average_risk.toFixed(3)}`;
+              viewer.zoomTo(routeEntity);
+          } catch (e) { statusEl.innerText = "실패: " + e.message; }
+      }
+      
+      let isSelectingStart = true;
+      let startMarker = null;
+      let endMarker = null;
+
+      // 1. 역변환 함수: 위경도/고도를 Voxel 인덱스(x,y,z)로 변환
+      function lonLatAltToVoxel(lon, lat, alt) {
+          const baseLon = 126.6300;
+          const baseLat = 37.3850;
+          const lonStep = 0.00012;
+          const latStep = 0.00009;
+          
+          const x = Math.round((lon - baseLon) / lonStep);
+          const y = Math.round((lat - baseLat) / latStep);
+          const z = Math.round((alt - 5) / 10);
+          
+          return [x, y, z];
+      }
+
+      // 2. Cesium 클릭 핸들러 등록
+      const clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+      clickHandler.setInputAction(function(click) {
+          const ray = viewer.camera.getPickRay(click.position);
+          const cartesian = viewer.scene.globe.pick(ray, viewer.scene);
+
+          if (Cesium.defined(cartesian)) {
+              const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
+              const lon = Cesium.Math.toDegrees(cartographic.longitude);
+              const lat = Cesium.Math.toDegrees(cartographic.latitude);
+              const alt = cartographic.height;
+
+              const [vx, vy, vz] = lonLatAltToVoxel(lon, lat, alt);
+              const voxelStr = `${vx},${vy},${vz < 0 ? 0 : vz}`; 
+
+              if (isSelectingStart) {
+                  document.getElementById('start').value = voxelStr;
+                  if (startMarker) viewer.entities.remove(startMarker);
+                  startMarker = viewer.entities.add({
+                      position: cartesian,
+                      point: { pixelSize: 15, color: Cesium.Color.RED, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
+                      label: { text: "출발지", font: '14px sans-serif', verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -15) }
+                  });
+                  document.getElementById('status').innerText = "출발지 설정 완료! 이제 도착지를 클릭하세요.";
+                  isSelectingStart = false;
+              } else {
+                  document.getElementById('end').value = voxelStr;
+                  if (endMarker) viewer.entities.remove(endMarker);
+                  endMarker = viewer.entities.add({
+                      position: cartesian,
+                      point: { pixelSize: 15, color: Cesium.Color.BLUE, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
+                      label: { text: "도착지", font: '14px sans-serif', verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -15) }
+                  });
+                  document.getElementById('status').innerText = "도착지 설정 완료! '위험 격자 생성' 버튼을 눌러주세요.";
+                  isSelectingStart = true;
+              }
+          }
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+      async function generateObstacle() {
+          if (!drone || !drone.isFlying) return;
+
+          const statusEl = document.getElementById('status');
+          
+          // 1. 현재 위치 파악
+          const currentTime = viewer.clock.currentTime;
+          const currentCartesian = drone.entity.position.getValue(currentTime);
+          if (!currentCartesian) return;
+
+          const cartographic = Cesium.Cartographic.fromCartesian(currentCartesian);
+          const lon = Cesium.Math.toDegrees(cartographic.longitude);
+          const lat = Cesium.Math.toDegrees(cartographic.latitude);
+          const alt = cartographic.height;
+          const currentVoxel = lonLatAltToVoxel(lon, lat, alt);
+
+          // 2. 장애물 위치 결정 (현재 경로상에서 조금 앞)
+          let closestIdx = 0;
+          let minPathsDist = Infinity;
+          for (let i = 0; i < drone.path.length; i++) {
+              const d = Cesium.Cartesian3.distance(currentCartesian, drone.path[i]);
+              if (d < minPathsDist) {
+                  minPathsDist = d;
+                  closestIdx = i;
+              }
+          }
+          
+          const obstacleIdx = Math.min(closestIdx + 5, drone.path.length - 1);
+          const obstacleCartesian = drone.path[obstacleIdx];
+          const obsCarto = Cesium.Cartographic.fromCartesian(obstacleCartesian);
+          const obstacleVoxel = lonLatAltToVoxel(
+              Cesium.Math.toDegrees(obsCarto.longitude),
+              Cesium.Math.toDegrees(obsCarto.latitude),
+              obsCarto.height
+          );
+
+          statusEl.innerText = "장애물 발생! 회피 경로 탐색 중...";
+
+          try {
+              // 3. 백엔드에 장애물 등록
+              await fetch('/api/obstacle', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ voxels: [obstacleVoxel] })
+              });
+
+              // 4. 장애물 시각화
+              viewer.entities.add({
+                  position: obstacleCartesian,
+                  box: {
+                      dimensions: new Cesium.Cartesian3(20, 20, 20),
+                      material: Cesium.Color.RED.withAlpha(0.7),
+                      outline: true,
+                      outlineColor: Cesium.Color.BLACK
+                  }
+              });
+
+              // 5. 현재 위치에서 재탐색
+              const endVal = document.getElementById('end').value.split(',').map(v => parseInt(v.trim()));
+              const response = await fetch('/api/route', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                      start: currentVoxel, 
+                      end: endVal,
+                      wind_speed: Number(document.getElementById('wind-speed').value),
+                      wind_direction: Number(document.getElementById('wind-direction').value),
+                      vehicle_type: 'passenger'
+                  })
+              });
+              
+              const data = await response.json();
+              if (data.error) throw new Error(data.error);
+
+              // 6. 경로 및 드론 업데이트
+              if (routeEntity) viewer.entities.remove(routeEntity);
+              const positions = data.path.map(p => {
+                  const [l, a, h] = voxelToLonLatAlt(p[0], p[1], p[2]);
+                  return Cesium.Cartesian3.fromDegrees(l, a, h);
+              });
+              
+              routeEntity = viewer.entities.add({
+                  polyline: { positions: positions, width: 8, material: Cesium.Color.SPRINGGREEN }
+              });
+
+              // 기존 애니메이션 중단 및 새 경로 시작
+              viewer.clock.shouldAnimate = false;
+              drone.setPath(positions, true); // true: 재탐색임을 알림 (초기 출발지 유지)
+              drone.startFlight();
+              
+              statusEl.innerText = `장애물 회피 완료! 새로운 경로로 비행합니다.`;
+          } catch (e) {
+              statusEl.innerText = "회피 실패: " + e.message;
+          }
+      }
+
+      // --- 실시간 HUD 업데이트 로직 ---
+viewer.clock.onTick.addEventListener(function(clock) {
+    // 드론이 비행 중일 때만 HUD 창을 띄우고 수치를 업데이트합니다.
+    if (drone && drone.status === 'Flying') {
+        document.getElementById('drone-telemetry').style.display = 'block';
+        document.getElementById('hud-status').innerText = 'FLYING';
+        document.getElementById('hud-status').style.color = '#4ade80'; // 초록색 불
+
+        // (주의) 팀원의 drone.js 구조에 따라 드론 엔티티에 접근하는 변수명이 다를 수 있습니다.
+        // 만약 drone.entity 가 없다면 drone.droneEntity 등으로 확인해보세요!
+        if (drone.entity && drone.entity.position) {
+            // 1. 현재 시간의 드론 위치 가져오기
+            const position = drone.entity.position.getValue(clock.currentTime);
+            
+            if (position) {
+                // 2. Cartesian3(지구 중심 좌표)를 Cartographic(위경도, 고도)로 변환
+                const cartographic = Cesium.Cartographic.fromCartesian(position);
+                
+                // 3. 고도 업데이트 (소수점 1자리까지)
+                const currentAltitude = cartographic.height;
+                document.getElementById('hud-alt').innerText = currentAltitude.toFixed(1) + ' m';
+                
+                // 4. 가짜 속도 연출 (고도가 변하고 있으면 날아가고 있는 것이므로 속도를 표시)
+                // 실제 속도를 구하려면 이전 프레임의 위치와 비교해야 하지만, 시연용으로는 난수 섞인 고정 속도가 화려합니다.
+                const mockSpeed = 60 + (Math.random() * 5); 
+                document.getElementById('hud-spd').innerText = mockSpeed.toFixed(0) + ' km/h';
+            }
+        }
+    } else if (drone && drone.status === 'Arrived') {
+        document.getElementById('hud-status').innerText = 'ARRIVED';
+        document.getElementById('hud-status').style.color = '#f1c40f'; // 노란색 불
+        document.getElementById('hud-spd').innerText = '0 km/h';
+    } else {
+        // 비행 중이 아니면 숨김 (원하면 'block'으로 두고 0.0m를 유지하게 해도 됩니다)
+        document.getElementById('drone-telemetry').style.display = 'none';
+    }
+});
+
     </script>
-    <script src="{{ url_for('static', filename='js/map.js') }}"></script>
-  </body>
+</body>
 </html>

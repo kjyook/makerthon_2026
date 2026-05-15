@@ -44,7 +44,7 @@ function clearRisk() {
 async function loadRiskMap() {
   const wind_speed = Number(windSpeedInput.value);
   const wind_direction = Number(windDirectionInput.value);
-
+  
   const url = `/api/risk-map?wind_speed=${wind_speed}&wind_direction=${wind_direction}&threshold=0.7`;
   const res = await fetch(url);
   if (!res.ok) {
