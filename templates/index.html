@@ -241,19 +241,30 @@
               riskEntities.forEach(e => viewer.entities.remove(e));
               riskEntities = [];
               if (data.points) {
+                  const minColor = Cesium.Color.YELLOW.withAlpha(0.3); // 연한 노란색 (임계값 0.4 근처)
+                  const maxColor = Cesium.Color.DARKRED.withAlpha(0.8); // 진한 빨간색 (위험도 1.0)
+
                   data.points.forEach(p => {
                       const [lon, lat, alt] = voxelToLonLatAlt(p.x, p.y, p.z);
+                      
+                      // 위험도 0.4~1.0 사이를 0~1 비율로 변환
+                      let t = (p.risk - 0.4) / (1.0 - 0.4);
+                      t = Math.max(0, Math.min(1, t)); // 범위 클램핑
+                      
+                      // 색상 보간(Lerp)
+                      const voxelColor = Cesium.Color.lerp(minColor, maxColor, t, new Cesium.Color());
+
                       const entity = viewer.entities.add({
                           position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
                           box: {
                               dimensions: new Cesium.Cartesian3(10, 10, 10), 
-                              material: Cesium.Color.ORANGE.withAlpha(0.6),
+                              material: voxelColor,
                               outline: false
                           }
                       });
                       riskEntities.push(entity);
                   });
-                  statusEl.innerText = `격자 ${riskEntities.length}개 생성 완료!`;
+                  statusEl.innerText = `격자 ${riskEntities.length}개 생성 완료! (단계별 시각화 적용)`;
               }
           } catch (e) { statusEl.innerText = "에러: " + e.message; }
       }
