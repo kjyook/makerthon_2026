@@ -122,7 +122,11 @@
                 const speed = data.wind_speed;
                 const deg = data.wind_direction;
                 
-                // 입력창 업데이트 로직 (기존 동일)
+                // 상단 상태바 텍스트 업데이트
+                document.getElementById('w-speed').innerText = speed.toFixed(1);
+                document.getElementById('w-deg').innerText = deg.toFixed(0);
+                
+                // 입력창 업데이트 로직
                 const speedInput = document.getElementById('wind-speed') || document.getElementById('windSpeed');
                 const degInput = document.getElementById('wind-direction') || document.getElementById('windDirection');
                 if(speedInput) speedInput.value = speed.toFixed(1);
