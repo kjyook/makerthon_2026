@@ -11,7 +11,7 @@ from flask_cors import CORS
 from core.llm import get_risk_alpha
 from core.pathfinding import find_path_astar
 from core.test_physics import compute_risk_map
-from core.voxel import GridSpec, create_airspace_grid
+from core.voxel import GridSpec, create_airspace_grid, find_rooftops
 
 # Load environment variables
 load_dotenv()
@@ -97,6 +97,12 @@ def risk_map_api():
             "points": points,
         }
     )
+
+
+@app.get("/api/landing-zones")
+def landing_zones_api():
+    zones = find_rooftops(OCCUPANCY)
+    return jsonify({"zones": zones})
 
 
 @app.post("/api/route")

@@ -116,3 +116,21 @@ def create_airspace_grid(spec: GridSpec) -> np.ndarray:
                     
     print(f"Voxelization complete. Grid shape: {grid.shape}")
     return grid
+
+def find_rooftops(grid: np.ndarray) -> List[tuple[int, int, int]]:
+    """
+    Find voxels that are free (1) but directly above a blocked voxel (0).
+    We sample these points to avoid overwhelming the frontend with thousands of points.
+    """
+    rooftops = []
+    nx, ny, nz = grid.shape
+    
+    # Simple sampling: check every 5th voxel in X and Y
+    for ix in range(0, nx, 5):
+        for iy in range(0, ny, 5):
+            # Scan from bottom up to find the surface of a building
+            for iz in range(1, nz):
+                if grid[ix, iy, iz] == 1 and grid[ix, iy, iz-1] == 0:
+                    rooftops.append((ix, iy, iz))
+                    break # Only one rooftop point per sampled column
+    return rooftops

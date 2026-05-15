@@ -72,9 +72,48 @@
     <script>
       let routeEntity = null;
       let riskEntities = [];
+      let landingZoneEntities = [];
+      let landingZones = []; // To store voxel coordinates for snapping
       let drone = null;
       // 입자 배열 선언
       let windParticles = [];
+
+      async function loadLandingZones() {
+          const statusEl = document.getElementById('status');
+          try {
+              const res = await fetch('/api/landing-zones');
+              const data = await res.json();
+              landingZones = data.zones;
+              
+              landingZoneEntities.forEach(e => viewer.entities.remove(e));
+              landingZoneEntities = [];
+              
+              landingZones.forEach(zone => {
+                  const [lon, lat, alt] = voxelToLonLatAlt(zone[0], zone[1], zone[2]);
+                  const entity = viewer.entities.add({
+                      position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
+                      point: {
+                          pixelSize: 10,
+                          color: Cesium.Color.LIME,
+                          outlineColor: Cesium.Color.WHITE,
+                          outlineWidth: 2,
+                          disableDepthTestDistance: Number.POSITIVE_INFINITY
+                      },
+                      label: {
+                          text: "Landing Zone",
+                          font: '10px sans-serif',
+                          show: false,
+                          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                          pixelOffset: new Cesium.Cartesian2(0, -10)
+                      }
+                  });
+                  landingZoneEntities.push(entity);
+              });
+              console.log(`Loaded ${landingZones.length} landing zones.`);
+          } catch (e) {
+              console.error("Failed to load landing zones:", e);
+          }
+      }
 
         async function updateWeatherUI() {
             try {
@@ -135,8 +174,11 @@
                 console.error("애니메이션 에러:", e);
             }
         }
-      // 페이지 로드 시 날씨 가져오기
-      window.onload = updateWeatherUI;
+      // 페이지 로드 시 날씨 및 착륙장 가져오기
+      window.onload = function() {
+          updateWeatherUI();
+          loadLandingZones();
+      };
 
       // --- 기존 드론 제어 로직 ---
       function launchDrone() {
@@ -276,6 +318,26 @@
           return [x, y, z];
       }
 
+      function findNearestLandingZone(vx, vy, vz) {
+          if (!landingZones || landingZones.length === 0) return null;
+          let minSourceDist = Infinity;
+          let nearest = null;
+          
+          landingZones.forEach(zone => {
+              const dx = zone[0] - vx;
+              const dy = zone[1] - vy;
+              const dz = zone[2] - vz;
+              const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+              if (dist < minSourceDist) {
+                  minSourceDist = dist;
+                  nearest = zone;
+              }
+          });
+          
+          // Only snap if within 10 voxels (100m)
+          return minSourceDist < 10 ? nearest : null;
+      }
+
       // 2. Cesium 클릭 핸들러 등록
       const clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
 
@@ -290,13 +352,23 @@
               const alt = cartographic.height;
 
               const [vx, vy, vz] = lonLatAltToVoxel(lon, lat, alt);
-              const voxelStr = `${vx},${vy},${vz < 0 ? 0 : vz}`; 
+              const nearestZone = findNearestLandingZone(vx, vy, vz);
+              
+              if (!nearestZone) {
+                  document.getElementById('status').innerText = "유효한 착륙장이 아닙니다. 초록색 포인트를 클릭하세요.";
+                  return;
+              }
+
+              const [nvx, nvy, nvz] = nearestZone;
+              const [nlon, nlat, nalt] = voxelToLonLatAlt(nvx, nvy, nvz);
+              const nCartesian = Cesium.Cartesian3.fromDegrees(nlon, nlat, nalt);
+              const voxelStr = `${nvx},${nvy},${nvz}`; 
 
               if (isSelectingStart) {
                   document.getElementById('start').value = voxelStr;
                   if (startMarker) viewer.entities.remove(startMarker);
                   startMarker = viewer.entities.add({
-                      position: cartesian,
+                      position: nCartesian,
                       point: { pixelSize: 15, color: Cesium.Color.RED, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
                       label: { text: "출발지", font: '14px sans-serif', verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -15) }
                   });
@@ -306,7 +378,7 @@
                   document.getElementById('end').value = voxelStr;
                   if (endMarker) viewer.entities.remove(endMarker);
                   endMarker = viewer.entities.add({
-                      position: cartesian,
+                      position: nCartesian,
                       point: { pixelSize: 15, color: Cesium.Color.BLUE, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
                       label: { text: "도착지", font: '14px sans-serif', verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -15) }
                   });
